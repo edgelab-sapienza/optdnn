@@ -22,7 +22,7 @@ pytest = "^7.4.0"
 pytest-asyncio = "^0.21.1"
 gdown = "^4.7.1"
 configparser = "^6.0.0"
-tf-optimizer-core = {git = "https://gitlab.com/edgeseamless/optimizer-edge.git", subdirectory = "src"}
+tf-optimizer-core = {git = "https://gitlab.com/edgeseamless/optimizer-edge.git"}
 
 
 [build-system]

@@ -8,6 +8,6 @@ src/tests/__pycache__
 model.tflite
 .idea
 .pytest_cache
-src/poetry.lock
+poetry.lock
 logs
 

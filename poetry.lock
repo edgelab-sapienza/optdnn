@@ -1974,8 +1974,7 @@ websockets = "^11.0.3"
 type = "git"
 url = "https://gitlab.com/edgeseamless/optimizer-edge.git"
 reference = "HEAD"
-resolved_reference = "f447a8c5114993f042de14c6a790733f389f7fec"
-subdirectory = "src"
+resolved_reference = "42c685e46f1e06bc4a84c8c49f89e9a605241bbe"
 
 [[package]]
 name = "tflite-runtime"
@@ -2280,4 +2279,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.12"
-content-hash = "9e2cc8f7f400152c2096eb9f8b0cace2acfef748bf6b7319c2f2d5dc5ef83866"
+content-hash = "3fe47b8945231b6eb91f0f43b1a04176611f73e3a5c875ff04db476cb6c23d48"
