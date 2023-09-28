@@ -16,13 +16,13 @@ websockets = "^11.0.3"
 nvidia-cudnn-cu11 = "8.6.0.163"
 inquirer = "^3.1.3"
 netifaces = "^0.11.0"
-tensorflow = "^2.12.0"
 matplotlib = "^3.7.1"
 pytest = "^7.4.0"
 pytest-asyncio = "^0.21.1"
 gdown = "^4.7.1"
 configparser = "^6.0.0"
 tf-optimizer-core = {git = "https://gitlab.com/edgeseamless/optimizer-edge.git"}
+tensorflow = "==2.13.*"
 
 
 [build-system]
