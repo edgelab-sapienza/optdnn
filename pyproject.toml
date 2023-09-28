@@ -4,7 +4,7 @@ version = "0.1.0"
 description = ""
 authors = ["Luca Giovannesi <l.giovannesi@gmail.com>"]
 readme = "README.md"
-packages = [{ include = "tf_optimizer" }]
+packages = [{ include = "src/tf_optimizer" }]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.12"
@@ -19,11 +19,10 @@ netifaces = "^0.11.0"
 tensorflow = "^2.12.0"
 matplotlib = "^3.7.1"
 pytest = "^7.4.0"
-#tf-optimizer-core = { path = "../tf_optimizer_core", develop = true }
-tf_optimizer_core = { git = "https://github.com/kernel-machine/tf_optimizer_core.git" }
 pytest-asyncio = "^0.21.1"
 gdown = "^4.7.1"
 configparser = "^6.0.0"
+tf-optimizer-core = {git = "https://gitlab.com/edgeseamless/optimizer-edge.git", subdirectory = "src"}
 
 
 [build-system]

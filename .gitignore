@@ -1,0 +1,13 @@
+models
+src/tf_optimizer/__pycache__
+src/tf_optimizer/tf_optimizer/benchmarker/__pycache__
+src/tf_optimizer/tf_optimizer/network/__pycache__
+src/tf_optimizer/optimizer/__pycache__
+src/tests/resources
+src/tests/__pycache__
+model.tflite
+.idea
+.pytest_cache
+src/poetry.lock
+logs
+

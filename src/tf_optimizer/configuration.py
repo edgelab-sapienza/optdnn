@@ -5,7 +5,7 @@ import re
 class Configuration:
     def __init__(self) -> None:
         self.config = ConfigParser()
-        self.config.read("config.ini")
+        self.config.read("../config.ini")
 
     @staticmethod
     def convert_to_types(input_string):
