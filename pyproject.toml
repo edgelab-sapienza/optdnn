@@ -4,7 +4,10 @@ version = "0.1.0"
 description = ""
 authors = ["Luca Giovannesi <l.giovannesi@gmail.com>"]
 readme = "README.md"
-packages = [{ include = "src/tf_optimizer" }]
+packages = [{ include = "tf_optimizer", from="src" }]
+
+[tool.poetry.scripts]
+start = "main:start"
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.12"
@@ -23,6 +26,8 @@ gdown = "^4.7.1"
 configparser = "^6.0.0"
 tf-optimizer-core = {git = "https://gitlab.com/edgeseamless/optimizer-edge.git"}
 tensorflow = "==2.13.*"
+fastapi = "^0.103.2"
+uvicorn = "^0.23.2"
 
 
 [build-system]

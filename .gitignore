@@ -10,4 +10,5 @@ model.tflite
 .pytest_cache
 poetry.lock
 logs
+src/__pycache__
 
