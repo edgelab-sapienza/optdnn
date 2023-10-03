@@ -7,13 +7,28 @@ import tensorflow as tf
 import asyncio
 import multiprocessing
 from time import time
-from fastapi import FastAPI
+from fastapi import FastAPI,Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse,PlainTextResponse
 import uvicorn
+from collections import defaultdict
+from fastapi.exceptions import RequestValidationError
+import json
+import urllib.parse
 
-app = FastAPI()
+tags_metadata = [
+    {
+        "name": "optimize",
+        "description": "Upload a model to be optimized, a new task is created and will be processed asynchronously",
+    },
+]
 
+app = FastAPI(
+    title="TF Optimizer",
+    openapi_tags=tags_metadata
+)
 
-@app.post("/optimize/")
+@app.post("/optimize/",tags=["optimize"])
 def optimize(optimization_config: OptimizationConfig):
     return str(optimization_config)
 
