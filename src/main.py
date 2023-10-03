@@ -2,35 +2,60 @@ import argparse
 from tf_optimizer.optimizer.tuner import Tuner
 from tf_optimizer.network.client import Client
 from tf_optimizer.dataset_manager import DatasetManager
-from tf_optimizer.optimizer.optimization_config import OptimizationConfig
+from tf_optimizer.task_manager.optimization_config import OptimizationConfig
 import tensorflow as tf
 import asyncio
 import multiprocessing
 from time import time
-from fastapi import FastAPI,Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse,PlainTextResponse
+from fastapi import FastAPI, Query
+from typing_extensions import Annotated
 import uvicorn
-from collections import defaultdict
-from fastapi.exceptions import RequestValidationError
-import json
-import urllib.parse
+
 
 tags_metadata = [
     {
-        "name": "optimize",
+        "name": "add_task",
         "description": "Upload a model to be optimized, a new task is created and will be processed asynchronously",
+    },
+    {
+        "name": "get_tasks",
+        "description": "Get all the tasks queued or completed",
+    },
+    {
+        "name": "delete_task",
+        "description": "Remove a task from the processing queue",
+    },
+    {
+        "name": "download_opt_model",
+        "description": "Download an optimized model",
     },
 ]
 
-app = FastAPI(
-    title="TF Optimizer",
-    openapi_tags=tags_metadata
-)
+app = FastAPI(title="TF Optimizer", openapi_tags=tags_metadata)
 
-@app.post("/optimize/",tags=["optimize"])
+
+@app.post("/add_task/", tags=["add_task"])
 def optimize(optimization_config: OptimizationConfig):
     return str(optimization_config)
+
+
+@app.get("/get_tasks/", tags=["get_tasks"])
+def get_tasks():
+    return "MISSING IMPLEMENTATION"
+
+
+@app.get("/delete_task/", tags=["delete_task"])
+def delete_task(task_id: Annotated[int, Query(description="Id of the task to remove")]):
+    return f"MISSING IMPLEMENTATION {task_id}"
+
+
+@app.get("/download_optimized_model/", tags=["download_opt_model"])
+def download_model(
+    task_id: Annotated[
+        int, Query(description="Id of the task linked to the model to download")
+    ]
+):
+    return "MISSING IMPLEMENTATION"
 
 
 async def main():
@@ -45,7 +70,7 @@ async def main():
     img_size = None
     remote_addr = None
     remote_port = None
-    
+
     parser = argparse.ArgumentParser(
         prog="tf_optimizer",
         description="A tool for optimization of TF models deployed on TFLite devices",
