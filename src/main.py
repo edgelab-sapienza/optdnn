@@ -2,60 +2,10 @@ import argparse
 from tf_optimizer.optimizer.tuner import Tuner
 from tf_optimizer.network.client import Client
 from tf_optimizer.dataset_manager import DatasetManager
-from tf_optimizer.task_manager.optimization_config import OptimizationConfig
 import tensorflow as tf
 import asyncio
 import multiprocessing
 from time import time
-from fastapi import FastAPI, Query
-from typing_extensions import Annotated
-import uvicorn
-
-
-tags_metadata = [
-    {
-        "name": "add_task",
-        "description": "Upload a model to be optimized, a new task is created and will be processed asynchronously",
-    },
-    {
-        "name": "get_tasks",
-        "description": "Get all the tasks queued or completed",
-    },
-    {
-        "name": "delete_task",
-        "description": "Remove a task from the processing queue",
-    },
-    {
-        "name": "download_opt_model",
-        "description": "Download an optimized model",
-    },
-]
-
-app = FastAPI(title="TF Optimizer", openapi_tags=tags_metadata)
-
-
-@app.post("/add_task/", tags=["add_task"])
-def optimize(optimization_config: OptimizationConfig):
-    return str(optimization_config)
-
-
-@app.get("/get_tasks/", tags=["get_tasks"])
-def get_tasks():
-    return "MISSING IMPLEMENTATION"
-
-
-@app.get("/delete_task/", tags=["delete_task"])
-def delete_task(task_id: Annotated[int, Query(description="Id of the task to remove")]):
-    return f"MISSING IMPLEMENTATION {task_id}"
-
-
-@app.get("/download_optimized_model/", tags=["download_opt_model"])
-def download_model(
-    task_id: Annotated[
-        int, Query(description="Id of the task linked to the model to download")
-    ]
-):
-    return "MISSING IMPLEMENTATION"
 
 
 async def main():
@@ -123,8 +73,3 @@ async def main():
 if __name__ == "__main__":
     multiprocessing.set_start_method("spawn")
     asyncio.run(main())
-
-
-def start():
-    """Launched with `poetry run start` at root level"""
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

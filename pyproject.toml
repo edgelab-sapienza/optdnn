@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{ include = "tf_optimizer", from="src" }]
 
 [tool.poetry.scripts]
-start = "main:start"
+start = "server:start"
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.12"
@@ -28,6 +28,7 @@ tf-optimizer-core = {git = "https://gitlab.com/edgeseamless/optimizer-edge.git"}
 tensorflow = "==2.13.*"
 fastapi = "^0.103.2"
 uvicorn = "^0.23.2"
+sqlalchemy = "^2.0.21"
 
 
 [build-system]
