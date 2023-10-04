@@ -1,5 +1,5 @@
 from tf_optimizer.task_manager.task_manager import TaskManager
-from tf_optimizer.task_manager.task import Task
+from tf_optimizer.task_manager.task import Task, TaskStatus
 
 
 class TestClass:
@@ -37,6 +37,23 @@ class TestClass:
         assert len(task_list) == 5
         first_task = self.tm.get_last_task()
         assert task_list[0] == first_task
+
+    def test_status_update(self) -> None:
+        inserted_task = self.__add_task__()
+        self.tm.update_task_state(inserted_task.id, TaskStatus.FAILED)
+        updated_task = self.tm.get_task_by_id(inserted_task.id)
+        assert updated_task.status == TaskStatus.FAILED
+
+    def test_serialization(self) -> None:
+        t1 = Task()
+        t1.model_url = "URL DI PROVA"
+        t1.dataset_url = "URL DI PROVA DATASET"
+        t1.dataset_scale = "[-1,1]"
+        t1.callback_url = "URL CALLBACK"
+        t1.remote_nodes = [["192.168.178.3", 3], ["192.168.178.5", 565]]
+        t1.img_size = [200, 200]
+        t2 = Task.from_json(t1.to_json())        
+        assert t1 == t2
 
     def teardown_method(self) -> None:
         self.tm.delete_table()

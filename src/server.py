@@ -3,7 +3,7 @@ from typing_extensions import Annotated
 from tf_optimizer.task_manager.optimization_config import OptimizationConfig
 import uvicorn
 from tf_optimizer.task_manager.task_manager import TaskManager
-from tf_optimizer.task_manager.task import Task
+from tf_optimizer.task_manager.task import Task, TaskStatus
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 
@@ -15,6 +15,10 @@ tags_metadata = [
     {
         "name": "get_tasks",
         "description": "Get all the tasks queued or completed",
+    },
+    {
+        "name": "get_task",
+        "description": "Get information of a single task",
     },
     {
         "name": "delete_task",
@@ -39,9 +43,10 @@ def add_task(optimization_config: OptimizationConfig):
     t.callback_url = str(optimization_config.callback_url)
     t.batch_size = optimization_config.batch_size
     t.img_size = optimization_config.img_size
-    nodes = optimization_config.remote_nodes
-    nodes = list(map(lambda x: (str(x[0]), x[1]), nodes))
-    t.remote_nodes = nodes
+    if optimization_config.remote_nodes is not None:
+        nodes = optimization_config.remote_nodes
+        nodes = list(map(lambda x: (str(x[0]), x[1]), nodes))
+        t.remote_nodes = nodes
     tm.add_task(t)
     return str(optimization_config)
 
@@ -50,6 +55,21 @@ def add_task(optimization_config: OptimizationConfig):
 def get_tasks():
     all_tasks = tm.get_all_task()
     json_compatible_item_data = jsonable_encoder(all_tasks)
+    for e in json_compatible_item_data:
+        e["status"] = TaskStatus(e["status"]).name
+    return JSONResponse(content=json_compatible_item_data)
+
+
+@app.get("/trigger/")
+def trigger():
+    tm.check_task_to_process()
+    return "CIAO"
+
+
+@app.get("/get_task/", tags=["get_task"])
+def get_task(task_id: Annotated[int, Query(description="Id of the task")]):
+    task = tm.get_task_by_id(task_id)
+    json_compatible_item_data = jsonable_encoder(task)
     return JSONResponse(content=json_compatible_item_data)
 
 

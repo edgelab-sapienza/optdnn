@@ -11,4 +11,5 @@ model.tflite
 poetry.lock
 logs
 src/__pycache__
-./sql_app.db
+.vscode
+/sql_app.db

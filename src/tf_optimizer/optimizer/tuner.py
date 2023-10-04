@@ -15,6 +15,7 @@ import pathlib
 import multiprocessing
 import logging
 import sys
+import os
 from datetime import datetime
 from statistics import mean
 from time import time
@@ -64,6 +65,7 @@ class Tuner:
         self.max_cluster_fails = 0
         now = datetime.now()
         date_time = now.strftime("%m-%d-%Y-%H:%M:%S")
+        os.makedirs("logs", exist_ok=True)
         logging.basicConfig(
             filename="logs/tuner{}.log".format(date_time),
             encoding="utf-8",
