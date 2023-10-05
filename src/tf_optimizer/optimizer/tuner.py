@@ -43,12 +43,13 @@ class Tuner:
     """
 
     def __init__(
-        self,
-        original_model: tf.keras.Sequential,
-        dataset: DatasetManager,
-        use_remote_nodes=False,
-        client=None,
-        batchsize=32,
+            self,
+            original_model: tf.keras.Sequential,
+            dataset: DatasetManager,
+            use_remote_nodes=False,
+            client=None,
+            batchsize=32,
+            optimized_model_path=None
     ) -> None:
         self.original_model = original_model
         self.dataset_manager = dataset
@@ -60,6 +61,7 @@ class Tuner:
         self.optimization_param.toggle_quantization(True)
         self.optimization_param.set_number_of_cluster(16)
         self.optimization_param.toggle_clustering(True)
+        self.optimized_model_path = optimized_model_path
         self.applied_prs = []
         self.no_cluster_prs = []
         self.max_cluster_fails = 0
@@ -100,19 +102,15 @@ class Tuner:
 
     @staticmethod
     def measure_keras_accuracy_process(
-        model_path: str,
-        dataset_manager: bytes,
-        batch_size: int,
-        lr: float,
-        from_logits: bool,
-        q: multiprocessing.Queue,
+            model_path: str,
+            dataset_manager: bytes,
+            batch_size: int,
+            lr: float,
+            from_logits: bool,
+            q: multiprocessing.Queue,
     ):
         print("Measuring keras model accuracy")
         print(f"model path:{model_path}")
-        gpus = tf.config.experimental.list_physical_devices("GPU")
-        gpu = gpus[0]
-        tf.config.experimental.set_memory_growth(gpu, True)
-
         model = tf.keras.models.load_model(model_path)
         print(f"MODEL LOADED {model}")
 
@@ -171,7 +169,7 @@ class Tuner:
             return res
 
     async def getOptimizedModel(
-        self, model_path, targetAccuracy: float, percentagePrecision: float = 2.0
+            self, model_path, targetAccuracy: float, percentagePrecision: float = 2.0
     ) -> tuple[bytes, BenchmarkerCore.Result]:
         iterations = 0
         pruningRatio = 0.5
@@ -191,20 +189,20 @@ class Tuner:
         while abs(reachedAccuracy - targetAccuracy) > percentagePrecision / 100:
             # Computing pruning rate
             if (
-                iterations == 0
-                and self.optimization_param.isClusteringEnabled()
-                and len(self.applied_prs) > 0
+                    iterations == 0
+                    and self.optimization_param.isClusteringEnabled()
+                    and len(self.applied_prs) > 0
             ):
                 pruningRatio = mean(self.applied_prs)
             elif (
-                iterations == 0
-                and not self.optimization_param.isClusteringEnabled()
-                and len(self.no_cluster_prs) > 0
+                    iterations == 0
+                    and not self.optimization_param.isClusteringEnabled()
+                    and len(self.no_cluster_prs) > 0
             ):
                 pruningRatio = mean(self.no_cluster_prs)
             elif iterations == 0 or (
-                iterations == 1
-                and (len(self.applied_prs) > 0 or len(self.no_cluster_prs) > 0)
+                    iterations == 1
+                    and (len(self.applied_prs) > 0 or len(self.no_cluster_prs) > 0)
             ):
                 # If first iteration and applied_pr is empty
                 # if mean of applied_pr has failed, so it starts from the middle
@@ -244,7 +242,7 @@ class Tuner:
                 logging.info(f"Measured accuracy {reachedAccuracy}")
 
             if counter_back_direction > self.configuation.getConfig(
-                "CLUSTERING", "number_of_backstep_to_exit"
+                    "CLUSTERING", "number_of_backstep_to_exit"
             ):
                 # Accuracy is too high, clusterization disabled
                 logging.info("Accuracy is too high, clusterization disabled")
@@ -272,7 +270,7 @@ class Tuner:
         left = self.configuation.getConfig("CLUSTERING", "min_clusters_numbers")
         delta_precision = self.configuation.getConfig("TUNER", "DELTA_PERCENTAGE")
         isTimePrioritized = (
-            self.configuation.getConfig("TUNER", "second_priority") == "SPEED"
+                self.configuation.getConfig("TUNER", "second_priority") == "SPEED"
         )
 
         # Step 0, save original model
@@ -282,16 +280,7 @@ class Tuner:
         self.bm.add_model(original_model, "original", is_reference=True)
 
         model_performance = await self.test_model(original_model_path)
-        reachedAccuracy = model_performance.accuracy
-        percentage_reached_accuracy = int(reachedAccuracy * 100)
-        logging.info(f"Current accuracy is {percentage_reached_accuracy}%")
-        targetAccuracy = -1
-        while targetAccuracy < 0 or targetAccuracy > percentage_reached_accuracy:
-            print(
-                f"Please, enter your target accuracy [value between 0 and {percentage_reached_accuracy} included]?"
-            )
-            targetAccuracy = int(input())
-        targetAccuracy /= 100
+        targetAccuracy = model_performance.accuracy
 
         self.optimization_param.toggle_clustering(True)
         cached_result = {}
@@ -345,20 +334,11 @@ class Tuner:
 
         self.optimization_param.set_number_of_cluster(int(choosen_clusters))
         self.optimization_param.toggle_clustering(True)
-        result, _ = await self.getOptimizedModel(
+        optimized_model, _ = await self.getOptimizedModel(
             original_model_path, targetAccuracy, percentagePrecision=delta_precision
         )
-        self.bm.add_tf_lite_model(result, "optimized")
-        await self.bm.benchmark()
-        self.bm.summary()
 
-    def __get_selected_index__(self, results) -> int:
-        selected_model = None
-        while selected_model is None:
-            print("Enter the id of the prefered model")
-            idToExport = input()
-            for result in results:
-                if result.id == int(idToExport):
-                    return result.id
-            print("Id not valid! Try again")
-        return -1
+        dirs = os.path.dirname(self.optimized_model_path)
+        os.makedirs(dirs, exist_ok=True)
+        with open(self.optimized_model_path, "wb") as f:
+            f.write(optimized_model)

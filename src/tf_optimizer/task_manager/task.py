@@ -1,3 +1,4 @@
+import os.path
 from sqlalchemy import Column, Integer, DateTime, String, JSON
 from tf_optimizer import Base
 from enum import IntEnum
@@ -24,13 +25,17 @@ class Task(Base):
     remote_nodes = Column(JSON, nullable=True, default=None)
     callback_url = Column(String, nullable=False)
     batch_size = Column(Integer, nullable=False, default=32)
-    optimized_model_path = Column(String, nullable=True, default=None)
+
+    def generate_filename(self) -> str:
+        filename = f"task_{self.id}.tflite"
+        folder = "optimized_models"
+        return os.path.join(folder, filename)
 
     def __str__(self) -> str:
         return (
-            f"ID: {self.id}, status: {self.status}, created_at: {self.created_at}, dataset_scale: {self.dataset_scale}, "
-            + f"model_url: {self.model_url}, dataset_url: {self.dataset_url}, img_size: {self.img_size}, "
-            + f"remote_nodes: {self.remote_nodes}, callback_url: {self.callback_url}, batch_size: {self.batch_size}, optimized_model_path: {self.optimized_model_path}"
+                f"ID: {self.id}, status: {self.status}, created_at: {self.created_at}, dataset_scale: {self.dataset_scale}, "
+                + f"model_url: {self.model_url}, dataset_url: {self.dataset_url}, img_size: {self.img_size}, "
+                + f"remote_nodes: {self.remote_nodes}, callback_url: {self.callback_url}, batch_size: {self.batch_size}, optimized_model_path: {self.optimized_model_path}"
         )
 
     def __eq__(self, __value: object) -> bool:
@@ -38,17 +43,17 @@ class Task(Base):
             return False
         else:
             return (
-                self.id == __value.id
-                and self.status == __value.status
-                # and self.created_at == __value.created_at
-                and self.model_url == __value.model_url
-                and self.dataset_url == __value.dataset_url
-                and self.dataset_scale == __value.dataset_scale
-                and self.img_size == __value.img_size
-                and self.remote_nodes == __value.remote_nodes
-                and self.callback_url == __value.callback_url
-                and self.batch_size == __value.batch_size
-                and self.optimized_model_path == __value.optimized_model_path
+                    self.id == __value.id
+                    and self.status == __value.status
+                    # and self.created_at == __value.created_at
+                    and self.model_url == __value.model_url
+                    and self.dataset_url == __value.dataset_url
+                    and self.dataset_scale == __value.dataset_scale
+                    and self.img_size == __value.img_size
+                    and self.remote_nodes == __value.remote_nodes
+                    and self.callback_url == __value.callback_url
+                    and self.batch_size == __value.batch_size
+                    and self.optimized_model_path == __value.optimized_model_path
             )
 
     def to_json(self) -> bytes:

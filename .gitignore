@@ -13,3 +13,4 @@ logs
 src/__pycache__
 .vscode
 /sql_app.db
+/completed_task/

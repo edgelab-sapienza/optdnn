@@ -1,11 +1,11 @@
-from fastapi import FastAPI, Query
-from typing_extensions import Annotated
-from tf_optimizer.task_manager.optimization_config import OptimizationConfig
 import uvicorn
-from tf_optimizer.task_manager.task_manager import TaskManager
-from tf_optimizer.task_manager.task import Task, TaskStatus
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
+
+from tf_optimizer.task_manager.optimization_config import OptimizationConfig
+from tf_optimizer.task_manager.task import Task, TaskStatus
+from tf_optimizer.task_manager.task_manager import TaskManager
 
 tags_metadata = [
     {
@@ -25,13 +25,16 @@ tags_metadata = [
         "description": "Remove a task from the processing queue",
     },
     {
+        "name": "resume_task",
+        "description": "Resume a task to the pending status",
+    },
+    {
         "name": "download_opt_model",
         "description": "Download an optimized model",
     },
 ]
-
-app = FastAPI(title="TF Optimizer", openapi_tags=tags_metadata)
 tm = TaskManager()
+app = FastAPI(title="TF Optimizer", openapi_tags=tags_metadata)
 
 
 @app.post("/add_task/", tags=["add_task"])
@@ -66,15 +69,15 @@ def trigger():
     return "CIAO"
 
 
-@app.get("/get_task/", tags=["get_task"])
-def get_task(task_id: Annotated[int, Query(description="Id of the task")]):
+@app.get("/{task_id}/info", tags=["get_task"])
+def get_task(task_id: int):
     task = tm.get_task_by_id(task_id)
     json_compatible_item_data = jsonable_encoder(task)
     return JSONResponse(content=json_compatible_item_data)
 
 
-@app.get("/delete_task/", tags=["delete_task"])
-def delete_task(task_id: Annotated[int, Query(description="Id of the task to remove")]):
+@app.get("/{task_id}/delete", tags=["delete_task"])
+def delete_task(task_id: int):
     removed_tasks_number = tm.delete_task(task_id)
     if removed_tasks_number > 0:
         return JSONResponse({"success": True, "message": None})
@@ -82,15 +85,20 @@ def delete_task(task_id: Annotated[int, Query(description="Id of the task to rem
         return JSONResponse({"success": False, "message": "Task not found"})
 
 
-@app.get("/download_optimized_model/", tags=["download_opt_model"])
-def download_model(
-    task_id: Annotated[
-        int, Query(description="Id of the task linked to the model to download")
-    ]
-):
+@app.get("/{task_id}/resume", tags=["resume_task"])
+def resume_task(task_id: int):
+    updated_rows = tm.update_task_state(task_id, TaskStatus.PENDING)
+    if updated_rows > 0:
+        return JSONResponse({"success": True, "message": None})
+    else:
+        return JSONResponse({"success": False, "message": "Task not found"})
+
+
+@app.get("/{task_id}/download", tags=["download_opt_model"])
+def download_model(task_id: int):
     return "MISSING IMPLEMENTATION"
 
 
 def start():
     """Launched with `poetry run start` at root level"""
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)
