@@ -25,6 +25,7 @@ class Task(Base):
     remote_nodes = Column(JSON, nullable=True, default=None)
     callback_url = Column(String, nullable=False)
     batch_size = Column(Integer, nullable=False, default=32)
+    pid = Column(Integer, nullable=True, default=None)
 
     def generate_filename(self) -> str:
         filename = f"task_{self.id}.tflite"
@@ -35,7 +36,7 @@ class Task(Base):
         return (
                 f"ID: {self.id}, status: {self.status}, created_at: {self.created_at}, dataset_scale: {self.dataset_scale}, "
                 + f"model_url: {self.model_url}, dataset_url: {self.dataset_url}, img_size: {self.img_size}, "
-                + f"remote_nodes: {self.remote_nodes}, callback_url: {self.callback_url}, batch_size: {self.batch_size}, optimized_model_path: {self.optimized_model_path}"
+                + f"remote_nodes: {self.remote_nodes}, callback_url: {self.callback_url}, batch_size: {self.batch_size}"
         )
 
     def __eq__(self, __value: object) -> bool:
@@ -53,7 +54,6 @@ class Task(Base):
                     and self.remote_nodes == __value.remote_nodes
                     and self.callback_url == __value.callback_url
                     and self.batch_size == __value.batch_size
-                    and self.optimized_model_path == __value.optimized_model_path
             )
 
     def to_json(self) -> bytes:

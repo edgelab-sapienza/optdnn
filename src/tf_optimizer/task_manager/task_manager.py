@@ -4,9 +4,10 @@ from tf_optimizer.task_manager.task import Task, TaskStatus
 from tf_optimizer import Base
 from tf_optimizer.optimizer.tuner import Tuner
 from tf_optimizer.dataset_manager import DatasetManager
-from threading import Thread, Semaphore
+from threading import Thread
 from zipfile import ZipFile
 from typing import Union
+import psutil
 import tempfile
 import shutil
 import os
@@ -17,7 +18,6 @@ import asyncio
 
 
 class TaskManager:
-
     def __init__(self) -> None:
         SQLALCHEMY_DATABASE_URL = "sqlite:///./sql_app.db"
         # SQLALCHEMY_DATABASE_URL = "postgresql://user:password@postgresserver/db"
@@ -30,10 +30,11 @@ class TaskManager:
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
         Base.metadata.create_all(self.engine)
         self.db = SessionLocal()
-        self.db.query(Task).where(Task.status != TaskStatus.COMPLETED).update({"status": TaskStatus.PENDING})
+        self.db.query(Task).where(Task.status != TaskStatus.COMPLETED).update(
+            {"status": TaskStatus.PENDING}
+        )
         self.db.commit()
-        multiprocessing.set_start_method('spawn')
-        self.sem = Semaphore()
+        multiprocessing.set_start_method("spawn")
         self.check_task_to_process()
 
     def delete_table(self) -> None:
@@ -59,24 +60,44 @@ class TaskManager:
         return self.db.query(Task).order_by(desc(Task.id)).all()
 
     def update_task_state(self, id_task: int, status: TaskStatus) -> int:
-        updated_rows = self.db.query(Task).filter(Task.id == id_task).update({"status": status})
+        updated_rows = (
+            self.db.query(Task).filter(Task.id == id_task).update({"status": status})
+        )
         self.db.commit()
         self.db.flush()
         self.check_task_to_process()
         return updated_rows
+
+    def update_task_pid(self, id_task: int, pid: int):
+        updated_rows = (
+            self.db.query(Task).filter(Task.id == id_task).update({"pid": pid})
+        )
+        self.db.commit()
+        self.db.flush()
+        return updated_rows
+
+    def terminate_task(self, id_task: int):
+        task = self.get_task_by_id(id_task)
+        if (
+            task is not None
+            and task.pid is not None
+            and task.status == TaskStatus.PROCESSING
+        ):
+            p = psutil.Process(task.pid)
+            p.terminate()
+            self.update_task_state(id_task, TaskStatus.FAILED)
 
     """
     Process the oldest task, if there ins't a task it exits immediatelly
     """
 
     def check_task_to_process(self):
-        if not self.sem.acquire(blocking=False):
-            print("SEM ACUQIRED")
-            return
         print("CHECKING TASK TO PROCESS")
 
         print(list(map(lambda x: x.status, self.get_all_task())))
-        processing_task = self.db.query(Task).where(Task.status == TaskStatus.PROCESSING).first()
+        processing_task = (
+            self.db.query(Task).where(Task.status == TaskStatus.PROCESSING).first()
+        )
 
         if processing_task is not None:
             return
@@ -86,29 +107,36 @@ class TaskManager:
         older_task = (
             self.db.query(Task)
             .where(Task.status == TaskStatus.PENDING)
-            .order_by(asc(Task.id)).first()
+            .order_by(asc(Task.id))
+            .first()
         )
 
         if older_task is not None:
             print("PENDING TASK IS PRESENT")
             self.update_task_state(older_task.id, TaskStatus.PROCESSING)
-            t = Thread(target=TaskManager.create_processing_process,
-                       args=(older_task.to_json(), self.update_task_state, self.sem))
+            t = Thread(
+                target=TaskManager.create_processing_process,
+                args=(
+                    older_task.to_json(),
+                    self.update_task_state,
+                    self.update_task_pid,
+                ),
+            )
             t.start()
 
     @staticmethod
-    def create_processing_process(t: bytes, tm, sem: Semaphore):
-        p = multiprocessing.Process(
-            target=TaskManager.process_task, args=(t,)
-        )
+    def create_processing_process(
+        t: bytes, assign_status_callback, assign_pid_callback
+    ):
+        task: Task = Task.from_json(t)
+        p = multiprocessing.Process(target=TaskManager.process_task, args=(t,))
         p.start()
+        assign_pid_callback(task.id, p.pid)
         p.join()
-        sem.release()
         if p.exitcode == 0:
-            tm(1, TaskStatus.COMPLETED)
+            assign_status_callback(task.id, TaskStatus.COMPLETED)
         else:
-            tm(1, TaskStatus.FAILED)
-        print("SEM RELEASED")
+            assign_status_callback(task.id, TaskStatus.FAILED)
 
     # On dedicated process
     @staticmethod
@@ -154,7 +182,7 @@ class TaskManager:
             original_model,
             dm,
             batchsize=t.batch_size,
-            optimized_model_path=t.generate_filename()
+            optimized_model_path=t.generate_filename(),
         )
         asyncio.run(tuner.tune())
 

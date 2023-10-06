@@ -29,6 +29,10 @@ tags_metadata = [
         "description": "Resume a task to the pending status",
     },
     {
+        "name": "stop_task",
+        "description": "Kill a task",
+    },
+    {
         "name": "download_opt_model",
         "description": "Download an optimized model",
     },
@@ -97,6 +101,12 @@ def resume_task(task_id: int):
 @app.get("/{task_id}/download", tags=["download_opt_model"])
 def download_model(task_id: int):
     return "MISSING IMPLEMENTATION"
+
+
+@app.get("/{task_id}/stop", tags=["stop_task"])
+def stop_task(task_id: int):
+    tm.terminate_task(task_id)
+    return JSONResponse({"success": True, "message": "Process will terminate in few minutes"})
 
 
 def start():
