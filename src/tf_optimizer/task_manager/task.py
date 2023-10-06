@@ -23,9 +23,12 @@ class Task(Base):
     dataset_scale = Column(JSON, nullable=False)
     img_size = Column(JSON, nullable=True, default=None)
     remote_nodes = Column(JSON, nullable=True, default=None)
+    # Url called when the optimization end
     callback_url = Column(String, nullable=False)
     batch_size = Column(Integer, nullable=False, default=32)
     pid = Column(Integer, nullable=True, default=None)
+    # Generated url used to download the file
+    download_url_callback = Column(String, nullable=True, default=None)
 
     def generate_filename(self) -> str:
         filename = f"task_{self.id}.tflite"
@@ -34,9 +37,9 @@ class Task(Base):
 
     def __str__(self) -> str:
         return (
-                f"ID: {self.id}, status: {self.status}, created_at: {self.created_at}, dataset_scale: {self.dataset_scale}, "
-                + f"model_url: {self.model_url}, dataset_url: {self.dataset_url}, img_size: {self.img_size}, "
-                + f"remote_nodes: {self.remote_nodes}, callback_url: {self.callback_url}, batch_size: {self.batch_size}"
+            f"ID: {self.id}, status: {self.status}, created_at: {self.created_at}, dataset_scale: {self.dataset_scale}, "
+            + f"model_url: {self.model_url}, dataset_url: {self.dataset_url}, img_size: {self.img_size}, "
+            + f"remote_nodes: {self.remote_nodes}, callback_url: {self.callback_url}, batch_size: {self.batch_size}"
         )
 
     def __eq__(self, __value: object) -> bool:
@@ -44,16 +47,18 @@ class Task(Base):
             return False
         else:
             return (
-                    self.id == __value.id
-                    and self.status == __value.status
-                    # and self.created_at == __value.created_at
-                    and self.model_url == __value.model_url
-                    and self.dataset_url == __value.dataset_url
-                    and self.dataset_scale == __value.dataset_scale
-                    and self.img_size == __value.img_size
-                    and self.remote_nodes == __value.remote_nodes
-                    and self.callback_url == __value.callback_url
-                    and self.batch_size == __value.batch_size
+                self.id == __value.id
+                and self.status == __value.status
+                # and self.created_at == __value.created_at
+                and self.model_url == __value.model_url
+                and self.dataset_url == __value.dataset_url
+                and self.dataset_scale == __value.dataset_scale
+                and self.img_size == __value.img_size
+                and self.remote_nodes == __value.remote_nodes
+                and self.callback_url == __value.callback_url
+                and self.batch_size == __value.batch_size
+                and self.pid == __value.pid
+                and self.download_url_callback == __value.download_url_callback
             )
 
     def to_json(self) -> bytes:
@@ -68,6 +73,8 @@ class Task(Base):
         d["remote_nodes"] = self.remote_nodes
         d["batch_size"] = self.batch_size
         d["callback_url"] = self.callback_url
+        d["pid"] = self.pid
+        d["download_url_callback"] = self.download_url_callback
         return pickle.dumps(d)
 
     @staticmethod
@@ -84,4 +91,6 @@ class Task(Base):
         t.remote_nodes = data["remote_nodes"]
         t.batch_size = data["batch_size"]
         t.callback_url = data["callback_url"]
+        t.pid = data["pid"]
+        t.download_url_callback = data["download_url_callback"]
         return t

@@ -34,15 +34,18 @@ class TaskManager:
             {"status": TaskStatus.PENDING}
         )
         self.db.commit()
-        multiprocessing.set_start_method("spawn")
         self.check_task_to_process()
 
     def delete_table(self) -> None:
         Task.__table__.drop(self.engine)
 
-    def add_task(self, t: Task) -> None:
+    def add_task(self, t: Task, base_url: str = None) -> None:
         self.db.add(t)
         self.db.commit()
+        self.db.flush()
+        # t.id is filled after flush
+        download_url = f"{base_url}{t.id}/download"
+        self.update_task_field(t.id, "download_url_callback", download_url)
         self.check_task_to_process()
 
     def delete_task(self, id: int) -> int:
@@ -60,17 +63,16 @@ class TaskManager:
         return self.db.query(Task).order_by(desc(Task.id)).all()
 
     def update_task_state(self, id_task: int, status: TaskStatus) -> int:
-        updated_rows = (
-            self.db.query(Task).filter(Task.id == id_task).update({"status": status})
-        )
-        self.db.commit()
-        self.db.flush()
+        updated_rows = self.update_task_field(id_task, "status", status)
         self.check_task_to_process()
         return updated_rows
 
     def update_task_pid(self, id_task: int, pid: int):
+        return self.update_task_field(id_task, "pid", pid)
+
+    def update_task_field(self, id_task: int, field: str, value: any):
         updated_rows = (
-            self.db.query(Task).filter(Task.id == id_task).update({"pid": pid})
+            self.db.query(Task).filter(Task.id == id_task).update({field: value})
         )
         self.db.commit()
         self.db.flush()
@@ -135,6 +137,10 @@ class TaskManager:
         p.join()
         if p.exitcode == 0:
             assign_status_callback(task.id, TaskStatus.COMPLETED)
+
+            payload = {"download_url": task.download_url_callback}
+            # A get request to the API
+            requests.get(task.callback_url, params=payload)
         else:
             assign_status_callback(task.id, TaskStatus.FAILED)
 

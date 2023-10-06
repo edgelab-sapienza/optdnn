@@ -1,11 +1,12 @@
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, FileResponse
 
 from tf_optimizer.task_manager.optimization_config import OptimizationConfig
 from tf_optimizer.task_manager.task import Task, TaskStatus
 from tf_optimizer.task_manager.task_manager import TaskManager
+import multiprocessing
 
 tags_metadata = [
     {
@@ -37,12 +38,14 @@ tags_metadata = [
         "description": "Download an optimized model",
     },
 ]
+
+multiprocessing.set_start_method("spawn")
 tm = TaskManager()
 app = FastAPI(title="TF Optimizer", openapi_tags=tags_metadata)
 
 
 @app.post("/add_task/", tags=["add_task"])
-def add_task(optimization_config: OptimizationConfig):
+def add_task(optimization_config: OptimizationConfig, request: Request):
     t = Task()
     t.model_url = str(optimization_config.model_url)
     t.dataset_url = str(optimization_config.dataset_url)
@@ -54,7 +57,7 @@ def add_task(optimization_config: OptimizationConfig):
         nodes = optimization_config.remote_nodes
         nodes = list(map(lambda x: (str(x[0]), x[1]), nodes))
         t.remote_nodes = nodes
-    tm.add_task(t)
+    tm.add_task(t, base_url=request.base_url._url)
     return str(optimization_config)
 
 
@@ -98,7 +101,7 @@ def resume_task(task_id: int):
         return JSONResponse({"success": False, "message": "Task not found"})
 
 
-@app.get("/{task_id}/download", tags=["download_opt_model"])
+@app.get("/{task_id}/download", tags=["download_opt_model"], name="download")
 def download_model(task_id: int):
     task = tm.get_task_by_id(task_id)
     if task is None:

@@ -8,10 +8,11 @@ class TestClass:
 
     def __add_task__(self) -> Task:
         t = Task()
-        t.model_url = "URL DI PROVA"
-        t.dataset_url = "URL DI PROVA DATASET"
-        t.dataset_scale = "[-1,1]"
-        t.callback_url = "URL CALLBACK"
+        t.model_url = "http://127.0.0.1:9000/fashion_mnist.keras"
+        t.dataset_url = "http://127.0.0.1:9000/fashion.zip"
+        t.dataset_scale = [-1, 1]
+        t.callback_url = "http://127.0.0.1:9000"
+        t.status = TaskStatus.FAILED
         self.tm.add_task(t)
         return t
 
@@ -40,9 +41,9 @@ class TestClass:
 
     def test_status_update(self) -> None:
         inserted_task = self.__add_task__()
-        self.tm.update_task_state(inserted_task.id, TaskStatus.FAILED)
+        self.tm.update_task_state(inserted_task.id, TaskStatus.COMPLETED)
         updated_task = self.tm.get_task_by_id(inserted_task.id)
-        assert updated_task.status == TaskStatus.FAILED
+        assert updated_task.status == TaskStatus.COMPLETED
 
     def test_serialization(self) -> None:
         t1 = Task()
@@ -52,7 +53,7 @@ class TestClass:
         t1.callback_url = "URL CALLBACK"
         t1.remote_nodes = [["192.168.178.3", 3], ["192.168.178.5", 565]]
         t1.img_size = [200, 200]
-        t2 = Task.from_json(t1.to_json())        
+        t2 = Task.from_json(t1.to_json())
         assert t1 == t2
 
     def teardown_method(self) -> None:
