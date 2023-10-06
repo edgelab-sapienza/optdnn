@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 
 from tf_optimizer.task_manager.optimization_config import OptimizationConfig
 from tf_optimizer.task_manager.task import Task, TaskStatus
@@ -100,13 +100,25 @@ def resume_task(task_id: int):
 
 @app.get("/{task_id}/download", tags=["download_opt_model"])
 def download_model(task_id: int):
-    return "MISSING IMPLEMENTATION"
+    task = tm.get_task_by_id(task_id)
+    if task is None:
+        return JSONResponse({"success": False, "message": "Task not found"})
+    elif task.status != TaskStatus.COMPLETED:
+        return JSONResponse({"success": False, "message": "Task not completed"})
+    else:
+        return FileResponse(
+            task.generate_filename(),
+            media_type="application/octet-stream",
+            filename=f"optimized_model_t{task.id}.tflite",
+        )
 
 
 @app.get("/{task_id}/stop", tags=["stop_task"])
 def stop_task(task_id: int):
     tm.terminate_task(task_id)
-    return JSONResponse({"success": True, "message": "Process will terminate in few minutes"})
+    return JSONResponse(
+        {"success": True, "message": "Process will terminate in few minutes"}
+    )
 
 
 def start():
