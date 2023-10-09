@@ -44,7 +44,36 @@ tm = TaskManager()
 app = FastAPI(title="TF Optimizer", openapi_tags=tags_metadata)
 
 
-@app.post("/add_task/", tags=["add_task"])
+@app.post(
+    "/add_task/",
+    tags=["add_task"],
+    responses={
+        200: {
+            "description": "Inserted item",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "task": {
+                            "dataset_url": "http://127.0.0.1:9000/fashion.zip",
+                            "created_at": "2023-10-09T09:48:34.108757",
+                            "img_size": None,
+                            "callback_url": "http://127.0.0.1:9000",
+                            "pid": None,
+                            "model_url": "http://127.0.0.1:9000/fashion_mnist.keras",
+                            "id": 2,
+                            "status": 1,
+                            "dataset_scale": [0, 1],
+                            "remote_nodes": None,
+                            "batch_size": 32,
+                            "download_url_callback": "http://127.0.0.1:8000/2/download",
+                        },
+                    }
+                }
+            },
+        }
+    },
+)
 def add_task(optimization_config: OptimizationConfig, request: Request):
     t = Task()
     t.model_url = str(optimization_config.model_url)
@@ -61,7 +90,35 @@ def add_task(optimization_config: OptimizationConfig, request: Request):
     return JSONResponse({"success": False, "task": jsonable_encoder(t)})
 
 
-@app.get("/get_tasks/", tags=["get_tasks"])
+@app.get(
+    "/get_tasks/",
+    tags=["get_tasks"],
+    responses={
+        200: {
+            "description": "Get items",
+            "content": {
+                "application/json": {
+                    "example": [
+                        {
+                            "dataset_url": "http://127.0.0.1:9000/fashion.zip",
+                            "created_at": "2023-10-06T22:00:05.817745",
+                            "img_size": None,
+                            "callback_url": "http://127.0.0.1:9000",
+                            "pid": 270511,
+                            "model_url": "http://127.0.0.1:9000/fashion_mnist.keras",
+                            "id": 1,
+                            "status": "COMPLETED",
+                            "dataset_scale": [0, 1],
+                            "remote_nodes": None,
+                            "batch_size": 32,
+                            "download_url_callback": "http://192.168.178.2:8000/1/download",
+                        }
+                    ]
+                }
+            },
+        }
+    },
+)
 def get_tasks():
     all_tasks = tm.get_all_task()
     json_compatible_item_data = jsonable_encoder(all_tasks)
@@ -70,42 +127,154 @@ def get_tasks():
     return JSONResponse(content=json_compatible_item_data)
 
 
-@app.get("/trigger/")
-def trigger():
-    tm.check_task_to_process()
-    return "CIAO"
-
-
-@app.get("/{task_id}/info", tags=["get_task"])
+@app.get(
+    "/{task_id}/info",
+    tags=["get_task"],
+    responses={
+        200: {
+            "description": "Get item",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "dataset_url": "http://127.0.0.1:9000/fashion.zip",
+                        "created_at": "2023-10-06T22:00:05.817745",
+                        "img_size": None,
+                        "callback_url": "http://127.0.0.1:9000",
+                        "pid": 270511,
+                        "model_url": "http://127.0.0.1:9000/fashion_mnist.keras",
+                        "id": 1,
+                        "status": 2,
+                        "dataset_scale": [0, 1],
+                        "remote_nodes": None,
+                        "batch_size": 32,
+                        "download_url_callback": "http://192.168.178.2:8000/1/download",
+                    }
+                }
+            },
+        }
+    },
+)
 def get_task(task_id: int):
     task = tm.get_task_by_id(task_id)
     json_compatible_item_data = jsonable_encoder(task)
     return JSONResponse(content=json_compatible_item_data)
 
 
-@app.get("/{task_id}/delete", tags=["delete_task"])
+@app.get(
+    "/{task_id}/delete",
+    tags=["delete_task"],
+    responses={
+        200: {
+            "description": "Task deleted",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "message": None,
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Task not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "message": "Task not found",
+                    }
+                }
+            },
+        },
+    },
+)
 def delete_task(task_id: int):
     removed_tasks_number = tm.delete_task(task_id)
     if removed_tasks_number > 0:
         return JSONResponse({"success": True, "message": None})
     else:
-        return JSONResponse({"success": False, "message": "Task not found"})
+        return JSONResponse(
+            status_code=404, content={"success": False, "message": "Task not found"}
+        )
 
 
-@app.get("/{task_id}/resume", tags=["resume_task"])
+@app.get(
+    "/{task_id}/resume",
+    tags=["resume_task"],
+    responses={
+        200: {
+            "description": "Task resumed",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "message": None,
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Task not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "message": "Task not found",
+                    }
+                }
+            },
+        },
+    },
+)
 def resume_task(task_id: int):
     updated_rows = tm.update_task_state(task_id, TaskStatus.PENDING)
     if updated_rows > 0:
         return JSONResponse({"success": True, "message": None})
     else:
-        return JSONResponse({"success": False, "message": "Task not found"})
+        return JSONResponse(
+            status_code=404, content={"success": False, "message": "Task not found"}
+        )
 
 
-@app.get("/{task_id}/download", tags=["download_opt_model"], name="download")
+@app.get(
+    "/{task_id}/download",
+    tags=["download_opt_model"],
+    name="download",
+    responses={
+        400: {
+            "description": "Task not completed",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "message": "Task not completed",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Task not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": False,
+                        "message": "Task not found",
+                    }
+                }
+            },
+        },
+        200: {
+            "description": "Optimized model file",
+            "content": {"application/octet-stream": {}},
+        },
+    },
+)
 def download_model(task_id: int):
     task = tm.get_task_by_id(task_id)
     if task is None:
-        return JSONResponse({"success": False, "message": "Task not found"})
+        return JSONResponse(
+            status_code=404, content={"success": False, "message": "Task not found"}
+        )
     elif task.status != TaskStatus.COMPLETED:
         return JSONResponse({"success": False, "message": "Task not completed"})
     else:
