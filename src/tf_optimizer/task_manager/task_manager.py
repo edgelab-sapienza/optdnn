@@ -39,7 +39,10 @@ class TaskManager:
     def delete_table(self) -> None:
         Task.__table__.drop(self.engine)
 
-    def add_task(self, t: Task, base_url: str = None) -> None:
+    '''
+    Add a task and return the task with the auto parameters assigned
+    '''
+    def add_task(self, t: Task, base_url: str = None) -> Task:
         self.db.add(t)
         self.db.commit()
         self.db.flush()
@@ -47,6 +50,7 @@ class TaskManager:
         download_url = f"{base_url}{t.id}/download"
         self.update_task_field(t.id, "download_url_callback", download_url)
         self.check_task_to_process()
+        return t
 
     def delete_task(self, id: int) -> int:
         removed_rows = self.db.query(Task).where(Task.id == id).delete()

@@ -58,7 +58,7 @@ def add_task(optimization_config: OptimizationConfig, request: Request):
         nodes = list(map(lambda x: (str(x[0]), x[1]), nodes))
         t.remote_nodes = nodes
     tm.add_task(t, base_url=request.base_url._url)
-    return str(optimization_config)
+    return JSONResponse({"success": False, "task": jsonable_encoder(t)})
 
 
 @app.get("/get_tasks/", tags=["get_tasks"])
