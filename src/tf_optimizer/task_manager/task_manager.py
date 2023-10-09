@@ -31,7 +31,7 @@ class TaskManager:
         Base.metadata.create_all(self.engine)
         self.db = SessionLocal()
         self.db.query(Task).where(Task.status != TaskStatus.COMPLETED).update(
-            {"status": TaskStatus.PENDING}
+            {"status": TaskStatus.PENDING, "error_msg": None}
         )
         self.db.commit()
         self.check_task_to_process()
@@ -39,16 +39,19 @@ class TaskManager:
     def delete_table(self) -> None:
         Task.__table__.drop(self.engine)
 
-    '''
+    """
     Add a task and return the task with the auto parameters assigned
-    '''
+    """
+
     def add_task(self, t: Task, base_url: str = None) -> Task:
         self.db.add(t)
         self.db.commit()
         self.db.flush()
-        # t.id is filled after flush
-        download_url = f"{base_url}{t.id}/download"
-        self.update_task_field(t.id, "download_url_callback", download_url)
+
+        if base_url is not None:
+            # t.id is filled after flush
+            download_url = f"{base_url}{t.id}/download"
+            self.update_task_field(t.id, "download_url", download_url)
         self.check_task_to_process()
         return t
 
@@ -82,6 +85,9 @@ class TaskManager:
         self.db.flush()
         return updated_rows
 
+    def report_error(self, id_task: int, error: str):
+        return self.update_task_field(id_task, "error_msg", error)
+
     def terminate_task(self, id_task: int):
         task = self.get_task_by_id(id_task)
         if (
@@ -98,17 +104,12 @@ class TaskManager:
     """
 
     def check_task_to_process(self):
-        print("CHECKING TASK TO PROCESS")
-
-        print(list(map(lambda x: x.status, self.get_all_task())))
         processing_task = (
             self.db.query(Task).where(Task.status == TaskStatus.PROCESSING).first()
         )
 
         if processing_task is not None:
             return
-
-        print("NO PROCESSING TASKS")
 
         older_task = (
             self.db.query(Task)
@@ -118,7 +119,6 @@ class TaskManager:
         )
 
         if older_task is not None:
-            print("PENDING TASK IS PRESENT")
             self.update_task_state(older_task.id, TaskStatus.PROCESSING)
             t = Thread(
                 target=TaskManager.create_processing_process,
@@ -126,31 +126,42 @@ class TaskManager:
                     older_task.to_json(),
                     self.update_task_state,
                     self.update_task_pid,
+                    self.report_error,
                 ),
             )
             t.start()
 
     @staticmethod
     def create_processing_process(
-        t: bytes, assign_status_callback, assign_pid_callback
+        t: bytes, assign_status_callback, assign_pid_callback, report_error_fn
     ):
         task: Task = Task.from_json(t)
-        p = multiprocessing.Process(target=TaskManager.process_task, args=(t,))
+        queue = multiprocessing.Queue()
+        p = multiprocessing.Process(
+            target=TaskManager.process_task,
+            args=(
+                t,
+                queue,
+            ),
+        )
         p.start()
         assign_pid_callback(task.id, p.pid)
         p.join()
         if p.exitcode == 0:
             assign_status_callback(task.id, TaskStatus.COMPLETED)
-
-            payload = {"download_url": task.download_url_callback}
-            # A get request to the API
-            requests.get(task.callback_url, params=payload)
+            if task.callback_url is not None:
+                payload = {"download_url": task.download_url}
+                # A get request to the API
+                requests.get(task.callback_url, params=payload)
         else:
+            error_msg = queue.get()
+            if error_msg is not None and type(error_msg) is str:
+                report_error_fn(task.id, error_msg)
             assign_status_callback(task.id, TaskStatus.FAILED)
 
     # On dedicated process
     @staticmethod
-    def process_task(data: bytes) -> None:
+    def process_task(data: bytes, queue: multiprocessing.Queue) -> None:
         t = Task.from_json(data)
         temp_workspace = tempfile.mkdtemp()
         # Download model
@@ -181,10 +192,9 @@ class TaskManager:
                 detected_input_size[3],
             )
         if detected_input_size[1] is None and detected_input_size[2] is None:
-            print(
-                "Cannot detect model input size, provides it manually using the parameter --image_size"
-            )
-            exit()
+            msg = "Cannot detect model input size, provides it manually using the parameter image_size"
+            queue.put(msg)
+            exit(-1)
 
         img_shape = (detected_input_size[1], detected_input_size[2])
         dm = DatasetManager(dataset_folder, img_size=img_shape, scale=t.dataset_scale)

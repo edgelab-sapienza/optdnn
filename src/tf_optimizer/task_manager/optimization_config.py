@@ -16,7 +16,7 @@ class OptimizationConfig(BaseModel):
     remote_nodes: Union[None, list[Tuple[IPv4Address, int]]] = \
         Field(example=[["192.168.178.2", 12345], ["192.168.178.65", 12345], ["192.168.178.96", 12345]], description="IP addresses and port of the remote nodes used to test the model", default=None)
 
-    callback_url: Union[HttpUrl, IPv4Address] = Query(example=["http://192.168.178.3:8080/callback?id=3", "http://my_pc.com/callback"], description="URL called when the optimization is ended")
+    callback_url: Union[HttpUrl, IPv4Address, None] = Query(example=["http://192.168.178.3:8080/callback?id=3", "http://my_pc.com/callback"], description="URL called when the optimization is ended", default=None)
     batch_size: int = Field(example=[32], description="Batch size", default=32)
 
     def __str__(self) -> str:

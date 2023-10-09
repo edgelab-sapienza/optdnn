@@ -79,7 +79,7 @@ def add_task(optimization_config: OptimizationConfig, request: Request):
     t.model_url = str(optimization_config.model_url)
     t.dataset_url = str(optimization_config.dataset_url)
     t.dataset_scale = optimization_config.dataset_scale
-    t.callback_url = str(optimization_config.callback_url)
+    t.callback_url = optimization_config.callback_url
     t.batch_size = optimization_config.batch_size
     t.img_size = optimization_config.img_size
     if optimization_config.remote_nodes is not None:
@@ -87,7 +87,7 @@ def add_task(optimization_config: OptimizationConfig, request: Request):
         nodes = list(map(lambda x: (str(x[0]), x[1]), nodes))
         t.remote_nodes = nodes
     tm.add_task(t, base_url=request.base_url._url)
-    return JSONResponse({"success": False, "task": jsonable_encoder(t)})
+    return JSONResponse({"success": True, "task": jsonable_encoder(t)})
 
 
 @app.get(
@@ -228,6 +228,7 @@ def delete_task(task_id: int):
 )
 def resume_task(task_id: int):
     updated_rows = tm.update_task_state(task_id, TaskStatus.PENDING)
+    tm.update_task_field(task_id, "error_msg", None)
     if updated_rows > 0:
         return JSONResponse({"success": True, "message": None})
     else:
