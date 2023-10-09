@@ -8,8 +8,8 @@ import zipfile
 
 
 pytest_plugins = ("pytest_asyncio",)
-dataset_path = "tests/resources/imagenet_dataset"
-model_path = "tests/resources/test.h5"
+dataset_path = "src/tests/resources/imagenet_dataset"
+model_path = "src/tests/resources/test.h5"
 
 
 class TestClass:
