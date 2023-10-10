@@ -8,8 +8,9 @@ class EdgeResult(Base):
     __tablename__ = "edge_result"
 
     id = Column(Integer, primary_key=True, index=True)
-    ip_address = Column(String)
-    port = Column(Integer)
+    alias = Column(String)
+    ip_address = Column(String, nullable=False)
+    port = Column(Integer, nullable=False)
     inference_time = Column(Float, default=0)
     task_id = Column(ForeignKey("tasks.id"))
 
