@@ -1,5 +1,6 @@
 from tf_optimizer.task_manager.task_manager import TaskManager
 from tf_optimizer.task_manager.task import Task, TaskStatus
+from tf_optimizer.task_manager.edge_result import EdgeResult
 
 
 class TestClass:
@@ -18,7 +19,11 @@ class TestClass:
 
     def test_insertion(self) -> None:
         inserted_task = self.__add_task__()
+        self.tm.add_result(inserted_task, "192.168.178.2", 1234)
         last_task = self.tm.get_last_task()
+        devices = last_task.devices
+        assert len(devices) > 0
+        assert devices[0].ip_address == "192.168.178.2" and devices[0].port == 1234
         assert inserted_task == last_task
 
     def test_task_deletion(self) -> None:
@@ -51,7 +56,6 @@ class TestClass:
         t1.dataset_url = "URL DI PROVA DATASET"
         t1.dataset_scale = "[-1,1]"
         t1.callback_url = "URL CALLBACK"
-        t1.remote_nodes = [["192.168.178.3", 3], ["192.168.178.5", 565]]
         t1.img_size = [200, 200]
         t2 = Task.from_json(t1.to_json())
         assert t1 == t2

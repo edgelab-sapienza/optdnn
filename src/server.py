@@ -1,3 +1,5 @@
+import multiprocessing
+
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -6,7 +8,6 @@ from fastapi.responses import JSONResponse, FileResponse
 from tf_optimizer.task_manager.optimization_config import OptimizationConfig
 from tf_optimizer.task_manager.task import Task, TaskStatus
 from tf_optimizer.task_manager.task_manager import TaskManager
-import multiprocessing
 
 tags_metadata = [
     {
@@ -82,11 +83,14 @@ def add_task(optimization_config: OptimizationConfig, request: Request):
     t.callback_url = optimization_config.callback_url
     t.batch_size = optimization_config.batch_size
     t.img_size = optimization_config.img_size
+    tm.add_task(t, base_url=request.base_url._url)
     if optimization_config.remote_nodes is not None:
         nodes = optimization_config.remote_nodes
-        nodes = list(map(lambda x: (str(x[0]), x[1]), nodes))
-        t.remote_nodes = nodes
-    tm.add_task(t, base_url=request.base_url._url)
+        for node in nodes:
+            ip_address = str(node[0])
+            port = node[1]
+            tm.add_result(t, ip_address, port)
+    tm.db.flush()
     return JSONResponse({"success": True, "task": jsonable_encoder(t)})
 
 
@@ -122,8 +126,6 @@ def add_task(optimization_config: OptimizationConfig, request: Request):
 def get_tasks():
     all_tasks = tm.get_all_task()
     json_compatible_item_data = jsonable_encoder(all_tasks)
-    for e in json_compatible_item_data:
-        e["status"] = TaskStatus(e["status"]).name
     return JSONResponse(content=json_compatible_item_data)
 
 

@@ -1,20 +1,23 @@
-from sqlalchemy import create_engine, desc, asc
-from sqlalchemy.orm import sessionmaker
-from tf_optimizer.task_manager.task import Task, TaskStatus
-from tf_optimizer import Base
-from tf_optimizer.optimizer.tuner import Tuner
-from tf_optimizer.dataset_manager import DatasetManager
-from threading import Thread
-from zipfile import ZipFile
-from typing import Union
-import psutil
-import tempfile
-import shutil
+import asyncio
+import multiprocessing
 import os
+import shutil
+import tempfile
+from threading import Thread
+from typing import Union
+from zipfile import ZipFile
+
+import psutil
 import requests
 import tensorflow as tf
-import multiprocessing
-import asyncio
+from sqlalchemy import create_engine, desc, asc
+from sqlalchemy.orm import sessionmaker
+
+from tf_optimizer import Base
+from tf_optimizer.dataset_manager import DatasetManager
+from tf_optimizer.optimizer.tuner import Tuner
+from tf_optimizer.task_manager.edge_result import EdgeResult
+from tf_optimizer.task_manager.task import Task, TaskStatus
 
 
 class TaskManager:
@@ -38,6 +41,7 @@ class TaskManager:
 
     def delete_table(self) -> None:
         Task.__table__.drop(self.engine)
+        EdgeResult.__table__.drop(self.engine)
 
     """
     Add a task and return the task with the auto parameters assigned
@@ -55,19 +59,29 @@ class TaskManager:
         self.check_task_to_process()
         return t
 
+    def add_result(self, task: Task, ip_address: str, port: int):
+        self.db.refresh(task)
+        edge_result = EdgeResult(ip_address, port)
+        edge_result.task_id = task.id
+        self.db.add(edge_result)
+        self.db.commit()
+
     def delete_task(self, id: int) -> int:
         removed_rows = self.db.query(Task).where(Task.id == id).delete()
         self.db.commit()
         return removed_rows
 
     def get_task_by_id(self, id: int) -> Union[Task, None]:
-        return self.db.query(Task).where(Task.id == id).first()
+        return self.db.query(Task).select_from(Task).join(EdgeResult, EdgeResult.task_id == Task.id).where(
+            Task.id == id).first()
 
     def get_last_task(self) -> Task:
-        return self.db.query(Task).order_by(desc(Task.id)).first()
+        return self.db.query(Task).select_from(Task).join(EdgeResult, EdgeResult.task_id == Task.id).order_by(
+            desc(Task.id)).first()
 
     def get_all_task(self) -> list[Task]:
-        return self.db.query(Task).order_by(desc(Task.id)).all()
+        return self.db.query(Task).select_from(Task).join(EdgeResult, EdgeResult.task_id == Task.id).order_by(
+            desc(Task.id)).all()
 
     def update_task_state(self, id_task: int, status: TaskStatus) -> int:
         updated_rows = self.update_task_field(id_task, "status", status)
@@ -91,9 +105,9 @@ class TaskManager:
     def terminate_task(self, id_task: int):
         task = self.get_task_by_id(id_task)
         if (
-            task is not None
-            and task.pid is not None
-            and task.status == TaskStatus.PROCESSING
+                task is not None
+                and task.pid is not None
+                and task.status == TaskStatus.PROCESSING
         ):
             p = psutil.Process(task.pid)
             p.terminate()
@@ -133,7 +147,7 @@ class TaskManager:
 
     @staticmethod
     def create_processing_process(
-        t: bytes, assign_status_callback, assign_pid_callback, report_error_fn
+            t: bytes, assign_status_callback, assign_pid_callback, report_error_fn
     ):
         task: Task = Task.from_json(t)
         queue = multiprocessing.Queue()
