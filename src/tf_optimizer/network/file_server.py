@@ -1,9 +1,12 @@
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import os
-import netifaces as ni
 import hashlib
-from tf_optimizer.benchmarker.utils import get_gzipped_file
+import os
 import pathlib
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+import netifaces as ni
+import psutil
+
+from tf_optimizer.benchmarker.utils import get_gzipped_file
 
 
 class StateHTTPServer(HTTPServer):
@@ -59,11 +62,12 @@ class handler(BaseHTTPRequestHandler):
 
 
 class FileServer:
-    def __init__(self, path: str, port: int = 8000, local_address: str = None) -> None:
+    def __init__(self, path: str, port: int = 8080, local_address: str = None) -> None:
         self.path = path
         self.port = port
         if local_address is None:
-            self.ip = ni.ifaddresses("eth0")[ni.AF_INET][0]["addr"]
+            internet_interface = list(psutil.net_if_addrs())[-1]
+            self.ip = ni.ifaddresses(internet_interface)[ni.AF_INET][0]["addr"]
         else:
             self.ip = local_address
 
