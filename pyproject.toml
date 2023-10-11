@@ -4,7 +4,7 @@ version = "0.1.0"
 description = ""
 authors = ["Luca Giovannesi <l.giovannesi@gmail.com>"]
 readme = "README.md"
-packages = [{ include = "tf_optimizer", from="src" }]
+packages = [{ include = "tf_optimizer", from = "src" }]
 
 [tool.poetry.scripts]
 start = "server:start"
@@ -23,12 +23,11 @@ pytest = "^7.4.0"
 pytest-asyncio = "^0.21.1"
 gdown = "^4.7.1"
 configparser = "^6.0.0"
-tf-optimizer-core = {git = "https://gitlab.com/edgeseamless/optimizer-edge.git"}
 fastapi = "^0.103.2"
 uvicorn = "^0.23.2"
 sqlalchemy = "^2.0.21"
-tensorflow = {extras = ["and-cuda"], version = "^2.14.0"}
-
+tensorflow = { extras = ["and-cuda"], version = "^2.14.0" }
+tf-optimizer-core = {path = "../optimizer-edge", develop = true}
 
 [build-system]
 requires = ["poetry-core"]
