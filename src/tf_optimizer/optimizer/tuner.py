@@ -1,24 +1,26 @@
-from tf_optimizer.optimizer.optimizer import Optimizer
+import logging
+import multiprocessing
+import os
+import pathlib
+import sys
+import tempfile
+from datetime import datetime
+from statistics import mean
+from time import time
+
+import tensorflow as tf
+from tf_optimizer_core.benchmarker_core import BenchmarkerCore, Result
+
 from tf_optimizer.benchmarker.benchmarker import Benchmarker
+from tf_optimizer.benchmarker.utils import get_tflite_model_size
+from tf_optimizer.configuration import Configuration
 from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.optimizer.optimization_param import (
     OptimizationParam,
     QuantizationLayerToPrune,
     QuantizationTechnique,
 )
-from tf_optimizer.benchmarker.utils import get_tflite_model_size
-from tf_optimizer_core.benchmarker_core import BenchmarkerCore
-from tf_optimizer.configuration import Configuration
-import tensorflow as tf
-import tempfile
-import pathlib
-import multiprocessing
-import logging
-import sys
-import os
-from datetime import datetime
-from statistics import mean
-from time import time
+from tf_optimizer.optimizer.optimizer import Optimizer
 
 
 class SpeedMeausureCallback(tf.keras.callbacks.Callback):
@@ -53,7 +55,7 @@ class Tuner:
     ) -> None:
         self.original_model = original_model
         self.dataset_manager = dataset
-        self.bm = Benchmarker(use_remote_nodes, client=client)
+        self.bm = Benchmarker(use_remote_nodes, edge_devices=client)
         self.batch_size = batchsize
         self.optimization_param = OptimizationParam()
         self.optimization_param.toggle_pruning(True)
@@ -123,12 +125,12 @@ class Tuner:
         metrics = model.evaluate(
             dm.generate_batched_dataset(batch_size)[1], callbacks=[speedCallback]
         )
-        res = BenchmarkerCore.Result()
+        res = Result()
         res.time = speedCallback.get_avg_time()
         res.accuracy = metrics[1]
         q.put(res)
 
-    async def test_model(self, model) -> BenchmarkerCore.Result:
+    async def test_model(self, model) -> Result:
         if isinstance(model, bytes):
             print("Measuring tflite model accuracy")
             bc = BenchmarkerCore(
@@ -170,7 +172,7 @@ class Tuner:
 
     async def getOptimizedModel(
             self, model_path, targetAccuracy: float, percentagePrecision: float = 2.0
-    ) -> tuple[bytes, BenchmarkerCore.Result]:
+    ) -> tuple[bytes, Result]:
         iterations = 0
         pruningRatio = 0.5
         minPruningRatio = 0
@@ -262,7 +264,7 @@ class Tuner:
             self.no_cluster_prs.append(pruningRatio)
         return tflite_model, model_result
 
-    async def tune(self) -> None:
+    async def tune(self) -> bytes:
         await self.bm.set_dataset(self.dataset_manager)
 
         # Get parameters from config
@@ -285,7 +287,7 @@ class Tuner:
         self.optimization_param.toggle_clustering(True)
         cached_result = {}
 
-        while abs(left - right) > 2:
+        while False and abs(left - right) > 2:
             left_third = int(left + (right - left) / 3)
             right_third = int(right - (right - left) / 3)
             tf.keras.backend.clear_session()
@@ -338,7 +340,10 @@ class Tuner:
             original_model_path, targetAccuracy, percentagePrecision=delta_precision
         )
 
+        return optimized_model
+        """
         dirs = os.path.dirname(self.optimized_model_path)
         os.makedirs(dirs, exist_ok=True)
         with open(self.optimized_model_path, "wb") as f:
             f.write(optimized_model)
+        """

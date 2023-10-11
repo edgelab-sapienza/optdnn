@@ -14,9 +14,9 @@ from sqlalchemy import create_engine, desc, asc
 from sqlalchemy.orm import sessionmaker
 
 from tf_optimizer import Base
+from tf_optimizer.benchmarker.benchmarker import Benchmarker
 from tf_optimizer.dataset_manager import DatasetManager
-from tf_optimizer.optimizer.tuner import Tuner
-from tf_optimizer.task_manager.edge_result import EdgeResult
+from tf_optimizer.task_manager.edge_device import EdgeDevice
 from tf_optimizer.task_manager.task import Task, TaskStatus
 
 
@@ -39,18 +39,28 @@ class TaskManager:
         self.db.commit()
         self.check_task_to_process()
 
+    def __del__(self):
+        if self.db:
+            return self.engine
+
     def delete_table(self) -> None:
         Task.__table__.drop(self.engine)
-        EdgeResult.__table__.drop(self.engine)
+        EdgeDevice.__table__.drop(self.engine)
 
     """
     Add a task and return the task with the auto parameters assigned
     """
 
-    def add_task(self, t: Task, base_url: str = None) -> Task:
+    def add_task(self, t: Task, nodes: list[tuple[str, int]] = [("127.0.0.1", 12300)], base_url: str = None) -> Task:
         self.db.add(t)
         self.db.commit()
         self.db.flush()
+
+        for node in nodes:
+            edge_result = EdgeDevice(node[0], node[1])
+            edge_result.task_id = t.id
+            self.db.add(edge_result)
+        self.db.commit()
 
         if base_url is not None:
             # t.id is filled after flush
@@ -59,28 +69,22 @@ class TaskManager:
         self.check_task_to_process()
         return t
 
-    def add_result(self, task: Task, ip_address: str, port: int):
-        self.db.refresh(task)
-        edge_result = EdgeResult(ip_address, port)
-        edge_result.task_id = task.id
-        self.db.add(edge_result)
-        self.db.commit()
-
     def delete_task(self, id: int) -> int:
         removed_rows = self.db.query(Task).where(Task.id == id).delete()
+        self.db.query(EdgeDevice).where(EdgeDevice.task_id == id).delete()
         self.db.commit()
         return removed_rows
 
     def get_task_by_id(self, id: int) -> Union[Task, None]:
-        return self.db.query(Task).select_from(Task).join(EdgeResult, EdgeResult.task_id == Task.id).where(
+        return self.db.query(Task).select_from(Task).join(EdgeDevice, EdgeDevice.task_id == Task.id).where(
             Task.id == id).first()
 
     def get_last_task(self) -> Task:
-        return self.db.query(Task).select_from(Task).join(EdgeResult, EdgeResult.task_id == Task.id).order_by(
+        return self.db.query(Task).select_from(Task).join(EdgeDevice, EdgeDevice.task_id == Task.id).order_by(
             desc(Task.id)).first()
 
     def get_all_task(self) -> list[Task]:
-        return self.db.query(Task).select_from(Task).join(EdgeResult, EdgeResult.task_id == Task.id).order_by(
+        return self.db.query(Task).select_from(Task).join(EdgeDevice, EdgeDevice.task_id == Task.id).order_by(
             desc(Task.id)).all()
 
     def update_task_state(self, id_task: int, status: TaskStatus) -> int:
@@ -183,7 +187,7 @@ class TaskManager:
         model_path = os.path.join(temp_workspace, "model.keras")
         open(model_path, "wb").write(response.content)
 
-        # Download model
+        # Download dataset
         response = requests.get(t.dataset_url)
         dataset_zip = os.path.join(temp_workspace, "dataset.zip")
         open(dataset_zip, "wb").write(response.content)
@@ -212,13 +216,30 @@ class TaskManager:
 
         img_shape = (detected_input_size[1], detected_input_size[2])
         dm = DatasetManager(dataset_folder, img_size=img_shape, scale=t.dataset_scale)
+
+        """
         tuner = Tuner(
             original_model,
             dm,
             batchsize=t.batch_size,
             optimized_model_path=t.generate_filename(),
         )
-        asyncio.run(tuner.tune())
+        result = asyncio.run(tuner.tune())
+        optimized_model = result
+        """
+        optimized_model = tf.lite.TFLiteConverter.from_keras_model(original_model)
+        optimized_model.optimizations = [tf.lite.Optimize.DEFAULT]
+        optimized_model = optimized_model.convert()
 
-        # Here its end
+        bc = Benchmarker(use_remote_nodes=True, edge_devices=t.devices)
+        asyncio.run(bc.set_dataset(dm))
+        bc.add_model(original_model, "original")
+        bc.add_tf_lite_model(optimized_model, "optimized")
+        results = asyncio.run(bc.benchmark())
+        for device in t.devices:
+            print(f"{device.identifier()} - {results[device.identifier()]}")
+            for result in results[device.identifier()]:
+                print(result)
+        # bc.summary()
+        # Here ends
         shutil.rmtree(temp_workspace)

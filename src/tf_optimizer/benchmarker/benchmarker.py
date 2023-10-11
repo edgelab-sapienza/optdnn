@@ -1,17 +1,17 @@
-from tf_optimizer.network.client import Client
-from tf_optimizer.benchmarker.model_info import ModelInfo
-from tf_optimizer_core.benchmarker_core import BenchmarkerCore
-from tf_optimizer.dataset_manager import DatasetManager
-from . import utils as utils
-from tf_optimizer.benchmarker.result import Result
+import sys
 from enum import Enum, auto
 from typing import List
-from termcolor import colored
-from prettytable import PrettyTable
-import sys
-import os
+
 import tensorflow as tf
-import hashlib
+from prettytable import PrettyTable
+from termcolor import colored
+from tf_optimizer_core.benchmarker_core import BenchmarkerCore
+
+from tf_optimizer.benchmarker.model_info import ModelInfo
+from tf_optimizer.benchmarker.result import Result
+from tf_optimizer.dataset_manager import DatasetManager
+from tf_optimizer.task_manager.edge_device import EdgeDevice
+from . import utils as utils
 
 
 class Ordering(Enum):
@@ -31,12 +31,11 @@ class Benchmarker:
     models = []
     __dataset: DatasetManager = None
     core = None
-    client = None
-    result_cache = {}
+    edge_devices = None
 
     class OfflineProgressBar(BenchmarkerCore.Callback):
         async def progress_callback(
-            self, acc: float, progress: float, tooked_time: float, model_name: str = ""
+                self, acc: float, progress: float, tooked_time: float, model_name: str = ""
         ):
             current_accuracy = "{0:.2f}".format(acc)
             formatted_tooked_time = "{0:.2f}".format(tooked_time)
@@ -47,14 +46,15 @@ class Benchmarker:
             sys.stdout.flush()
 
     def __init__(
-        self, use_remote_nodes=False, client: Client = None, use_multicore=True
+            self, use_remote_nodes=False, edge_devices: list[EdgeDevice] = None,
+            use_multicore=True,
     ) -> None:
         self.isOnline = use_remote_nodes
         self.use_multicore = use_multicore
-        self.client = client
+        self.edge_devices = edge_devices
 
     def add_model(
-        self, model: tf.keras.Sequential, name: str, is_reference: bool = False
+            self, model: tf.keras.Sequential, name: str, is_reference: bool = False
     ) -> None:
         """
         Add a model to the benchmark system
@@ -67,8 +67,9 @@ class Benchmarker:
         self.add_tf_lite_model(converted_model, name, is_reference)
 
     def add_tf_lite_model(
-        self, model: bytes, name: str, is_reference: bool = False
+            self, model: bytes, name: str, is_reference: bool = False
     ) -> None:
+        print(f"ADDING {name} model")
         """
         Add a model to the benchmark system
         :param bytes model: Tensorflow lite model
@@ -78,44 +79,42 @@ class Benchmarker:
         _model = ModelInfo(model, name, is_reference)
         self.models.append(_model)
 
-    async def benchmark(self) -> None:
+    async def benchmark(self) -> dict:
         """
         Benchmark inserted models
         :param model: Unbatch dataset composed by elements of (input, label)
         """
-
-        if self.client is None and self.core is None:
+        results = {}
+        print(f"HERE {self.edge_devices}")
+        if self.edge_devices is None and self.core is None:
             print("You must first call set_dataset_path")
             return
 
-        for model in self.models:
-            file_path = model.get_model_path()
-            model.size = utils.get_gzipped_model_size(file_path)
+        for edge_device in self.edge_devices:
+            results[edge_device.identifier()] = []
+            print(f"SENDING {len(self.models)} MODEL TO {edge_device.identifier()}")
+            for model in self.models:
+                print(f"SENDING MODEL {model.name} TO {edge_device.identifier()}")
+                file_path = model.get_model_path()
+                model.size = utils.get_gzipped_model_size(file_path)
 
-            # Start local computing
-            m = hashlib.sha256()
-            m.update(model.get_model())
-            hash_code = m.digest().hex()
-            if hash_code in self.result_cache.keys():
-                res = self.result_cache[hash_code]
-            else:
+                # Start local computing
                 progressBar = Benchmarker.OfflineProgressBar()
                 if self.isOnline:
-                    res = await self.client.send_model(file_path, model.name)
+                    res = await edge_device.send_model(file_path, model.name)
                 else:
                     res = await self.core.test_model(file_path, model.name, progressBar)
-                self.result_cache[hash_code] = res
 
-            model.time = res.time
-            model.accuracy = res.accuracy
+                model.time = res.time
+                model.accuracy = res.accuracy
+                results[edge_device.identifier()].append(model)
 
-            os.remove(file_path)
-            print()
+        return results
 
     def summary(
-        self,
-        fieldToOrder: FieldToOrder = FieldToOrder.InsertedOrder,
-        order: Ordering = Ordering.Asc,
+            self,
+            fieldToOrder: FieldToOrder = FieldToOrder.InsertedOrder,
+            order: Ordering = Ordering.Asc,
     ) -> List[Result]:
         results = []
 
@@ -198,19 +197,22 @@ class Benchmarker:
         self.__dataset = dataset
         dataset_path = self.__dataset.get_validation_folder()
         if self.isOnline:
-            if self.client is None:
+            if self.edge_devices is None:
                 raise Exception(
                     "You want to use a client, but it is None in the costructor"
                 )
-            await self.client.send_dataset(dataset_path)
+            for client in self.edge_devices:
+                print(f"SENDING DS {dataset_path} at {client.ip_address}:{client.port}")
+                await client.send_dataset(dataset_path)
         else:
             self.core = BenchmarkerCore(
                 dataset_path, interval=dataset.scale, use_multicore=self.use_multicore
             )
 
     async def clear_online_node(self):
-        if self.isOnline and self.client is not None:
-            await self.client.close()
+        if self.isOnline and self.edge_devices is not None:
+            for edge_device in self.edge_devices:
+                await edge_device.close()
 
     def clearAllModels(self) -> None:
         self.models.clear()
