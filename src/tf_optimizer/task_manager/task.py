@@ -8,7 +8,7 @@ from sqlalchemy import Column, Integer, DateTime, String, JSON
 from sqlalchemy.orm import relationship, Mapped
 
 from tf_optimizer import Base
-from tf_optimizer.task_manager.edge_result import EdgeResult
+from tf_optimizer.task_manager.edge_device import EdgeDevice
 
 
 class TaskStatus(IntEnum):
@@ -35,7 +35,7 @@ class Task(Base):
     download_url = Column(String, nullable=True, default=None)
     error_msg = Column(String, nullable=True, default=None)
 
-    devices: Mapped[List["EdgeResult"]] = relationship(back_populates="task", lazy="joined")
+    devices: Mapped[List["EdgeDevice"]] = relationship(back_populates="task", lazy="joined")
 
     def generate_filename(self) -> str:
         filename = f"task_{self.id}.tflite"
@@ -80,6 +80,7 @@ class Task(Base):
         d["callback_url"] = self.callback_url
         d["pid"] = self.pid
         d["download_url_callback"] = self.download_url
+        d["devices"] = self.devices
         return pickle.dumps(d)
 
     @staticmethod
@@ -97,4 +98,5 @@ class Task(Base):
         t.callback_url = data["callback_url"]
         t.pid = data["pid"]
         t.download_url = data["download_url_callback"]
+        t.devices = data["devices"]
         return t
