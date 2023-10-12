@@ -1,13 +1,14 @@
 import os
 import shutil
 import sys
+from typing import List
 
 import websockets
-from sqlalchemy import Column, Integer, String, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import Mapped, relationship
 from tf_optimizer_core.benchmarker_core import Result
 from tf_optimizer_core.protocol import Protocol, PayloadMeans
-
+from tf_optimizer.task_manager.benchmark_result import BenchmarkResult
 from tf_optimizer import Base
 from tf_optimizer.network.file_server import FileServer
 
@@ -19,9 +20,10 @@ class EdgeDevice(Base):
     alias = Column(String)
     ip_address = Column(String, nullable=False)
     port = Column(Integer, nullable=False)
-    inference_time = Column(JSON, default=None)
+    # inference_time = Column(JSON, default=None)
     task_id = Column(ForeignKey("tasks.id"))
     task: Mapped["Task"] = relationship(back_populates="devices")
+    results: Mapped[List["BenchmarkResult"]] = relationship(back_populates="edge", lazy="joined")
 
     local_address = None
 
@@ -80,7 +82,9 @@ class EdgeDevice(Base):
             print("Uploading dataset")
             fs.serve()  # Blocking
             msg = await websocket.recv()
-        os.remove(filename)
+
+        if os.path.exists(filename):
+            os.remove(filename)
 
     async def close(self):
         uri = "ws://{}:{}".format(self.ip_address, self.port)

@@ -1,9 +1,10 @@
+import json
 import multiprocessing
 
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
 
 from tf_optimizer.task_manager.optimization_config import OptimizationConfig
 from tf_optimizer.task_manager.task import Task, TaskStatus
@@ -41,7 +42,7 @@ tags_metadata = [
 ]
 
 multiprocessing.set_start_method("spawn")
-tm = TaskManager()
+tm = TaskManager(run_tasks=True)
 app = FastAPI(title="TF Optimizer", openapi_tags=tags_metadata)
 
 
@@ -80,7 +81,7 @@ def add_task(optimization_config: OptimizationConfig, request: Request):
     t.model_url = str(optimization_config.model_url)
     t.dataset_url = str(optimization_config.dataset_url)
     t.dataset_scale = optimization_config.dataset_scale
-    t.callback_url = optimization_config.callback_url
+    t.callback_url = str(optimization_config.callback_url)
     t.batch_size = optimization_config.batch_size
     t.img_size = optimization_config.img_size
     remote_nodes = []
@@ -233,6 +234,7 @@ def delete_task(task_id: int):
 def resume_task(task_id: int):
     updated_rows = tm.update_task_state(task_id, TaskStatus.PENDING)
     tm.update_task_field(task_id, "error_msg", None)
+    tm.remove_results(task_id)
     if updated_rows > 0:
         return JSONResponse({"success": True, "message": None})
     else:

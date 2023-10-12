@@ -1,3 +1,4 @@
+import os.path
 import sys
 from enum import Enum, auto
 from typing import List
@@ -35,12 +36,12 @@ class Benchmarker:
 
     class OfflineProgressBar(BenchmarkerCore.Callback):
         async def progress_callback(
-                self, acc: float, progress: float, tooked_time: float, model_name: str = ""
+                self, acc: float, progress: float, took_time: float, model_name: str = ""
         ):
             current_accuracy = "{0:.2f}".format(acc)
-            formatted_tooked_time = "{0:.2f}".format(tooked_time)
+            formatted_took_time = "{0:.2f}".format(took_time)
             print(
-                f"\rBenchmarking: {model_name} - progress: {int(progress)}% - accuracy: {current_accuracy}% - speed: {formatted_tooked_time} ms",
+                f"\rBenchmarking: {model_name} - progress: {int(progress)}% - accuracy: {current_accuracy}% - speed: {formatted_took_time} ms",
                 end="",
             )
             sys.stdout.flush()
@@ -85,16 +86,13 @@ class Benchmarker:
         :param model: Unbatch dataset composed by elements of (input, label)
         """
         results = {}
-        print(f"HERE {self.edge_devices}")
         if self.edge_devices is None and self.core is None:
             print("You must first call set_dataset_path")
             return
 
         for edge_device in self.edge_devices:
             results[edge_device.identifier()] = []
-            print(f"SENDING {len(self.models)} MODEL TO {edge_device.identifier()}")
             for model in self.models:
-                print(f"SENDING MODEL {model.name} TO {edge_device.identifier()}")
                 file_path = model.get_model_path()
                 model.size = utils.get_gzipped_model_size(file_path)
 
@@ -149,15 +147,15 @@ class Benchmarker:
             index += 1
 
             # Append time
-            tooked_time = model.time
-            isFastest = tooked_time == min(map(lambda x: x.time, self.models))
-            isSlowest = tooked_time == max(map(lambda x: x.time, self.models))
-            tooked_time_str = "{0:.4f}".format(tooked_time)
+            took_time = model.time
+            isFastest = took_time == min(map(lambda x: x.time, self.models))
+            isSlowest = took_time == max(map(lambda x: x.time, self.models))
+            took_time_str = "{0:.4f}".format(took_time)
             if isFastest:
-                tooked_time_str = colored(tooked_time_str, "green")
+                took_time_str = colored(took_time_str, "green")
             elif isSlowest:
-                tooked_time_str = colored(tooked_time_str, "red")
-            elements.append(tooked_time_str)
+                took_time_str = colored(took_time_str, "red")
+            elements.append(took_time_str)
 
             # Append speedup
             speedup = slowest_time / model.time
@@ -215,4 +213,8 @@ class Benchmarker:
                 await edge_device.close()
 
     def clearAllModels(self) -> None:
+        for model in self.models:
+            path = model.get_model_path()
+            if os.path.exists(path):
+                os.remove(path)
         self.models.clear()

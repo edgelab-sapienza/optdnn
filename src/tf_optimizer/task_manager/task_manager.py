@@ -15,13 +15,17 @@ from sqlalchemy.orm import sessionmaker
 
 from tf_optimizer import Base
 from tf_optimizer.benchmarker.benchmarker import Benchmarker
+from tf_optimizer.benchmarker.model_info import ModelInfo
 from tf_optimizer.dataset_manager import DatasetManager
+from tf_optimizer.task_manager.benchmark_result import BenchmarkResult
 from tf_optimizer.task_manager.edge_device import EdgeDevice
 from tf_optimizer.task_manager.task import Task, TaskStatus
 
 
 class TaskManager:
-    def __init__(self) -> None:
+    run_tasks = False
+
+    def __init__(self, run_tasks) -> None:
         SQLALCHEMY_DATABASE_URL = "sqlite:///./sql_app.db"
         # SQLALCHEMY_DATABASE_URL = "postgresql://user:password@postgresserver/db"
         self.engine = create_engine(
@@ -33,15 +37,20 @@ class TaskManager:
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
         Base.metadata.create_all(self.engine)
         self.db = SessionLocal()
-        self.db.query(Task).where(Task.status != TaskStatus.COMPLETED).update(
-            {"status": TaskStatus.PENDING, "error_msg": None}
-        )
-        self.db.commit()
-        self.check_task_to_process()
+        self.run_tasks = run_tasks
+        if self.run_tasks:
+            self.db.query(Task).where(Task.status != TaskStatus.COMPLETED).update(
+                {"status": TaskStatus.PENDING, "error_msg": None}
+            )
+            self.db.commit()
+            self.check_task_to_process()
 
     def __del__(self):
         if self.db:
             return self.engine
+
+    def close(self):
+        self.db.close()
 
     def delete_table(self) -> None:
         Task.__table__.drop(self.engine)
@@ -66,7 +75,8 @@ class TaskManager:
             # t.id is filled after flush
             download_url = f"{base_url}{t.id}/download"
             self.update_task_field(t.id, "download_url", download_url)
-        self.check_task_to_process()
+        if self.run_tasks:
+            self.check_task_to_process()
         return t
 
     def delete_task(self, id: int) -> int:
@@ -89,8 +99,16 @@ class TaskManager:
 
     def update_task_state(self, id_task: int, status: TaskStatus) -> int:
         updated_rows = self.update_task_field(id_task, "status", status)
-        self.check_task_to_process()
+        if self.run_tasks:
+            self.check_task_to_process()
         return updated_rows
+
+    def remove_results(self, id_task: int):
+        task = self.get_task_by_id(id_task)
+        device_ids = list(map(lambda x: x.id, task.devices))
+        res = self.db.query(BenchmarkResult).filter(BenchmarkResult.edge_id.in_(device_ids)).delete()
+        self.db.commit()
+        return res
 
     def update_task_pid(self, id_task: int, pid: int):
         return self.update_task_field(id_task, "pid", pid)
@@ -117,6 +135,17 @@ class TaskManager:
             p.terminate()
             self.update_task_state(id_task, TaskStatus.FAILED)
 
+    def add_result(self, edge_id: int, model_info: ModelInfo):
+        benchmark_result = BenchmarkResult()
+        benchmark_result.time = model_info.time
+        benchmark_result.accuracy = model_info.accuracy
+        benchmark_result.size = model_info.size
+        benchmark_result.edge_id = edge_id
+        benchmark_result.name = model_info.name
+
+        self.db.add(benchmark_result)
+        self.db.commit()
+
     """
     Process the oldest task, if there ins't a task it exits immediatelly
     """
@@ -142,18 +171,19 @@ class TaskManager:
                 target=TaskManager.create_processing_process,
                 args=(
                     older_task.to_json(),
-                    self.update_task_state,
-                    self.update_task_pid,
-                    self.report_error,
                 ),
             )
             t.start()
 
     @staticmethod
     def create_processing_process(
-            t: bytes, assign_status_callback, assign_pid_callback, report_error_fn
+            t: bytes
     ):
         task: Task = Task.from_json(t)
+        tm = TaskManager(run_tasks=False)
+        tm.update_task_state(task.id, TaskStatus.PROCESSING)
+        tm.close()
+
         queue = multiprocessing.Queue()
         p = multiprocessing.Process(
             target=TaskManager.process_task,
@@ -163,10 +193,10 @@ class TaskManager:
             ),
         )
         p.start()
-        assign_pid_callback(task.id, p.pid)
         p.join()
+        tm = TaskManager(run_tasks=False)
         if p.exitcode == 0:
-            assign_status_callback(task.id, TaskStatus.COMPLETED)
+            tm.update_task_state(task.id, TaskStatus.COMPLETED)
             if task.callback_url is not None:
                 payload = {"download_url": task.download_url}
                 # A get request to the API
@@ -174,12 +204,15 @@ class TaskManager:
         else:
             error_msg = queue.get()
             if error_msg is not None and type(error_msg) is str:
-                report_error_fn(task.id, error_msg)
-            assign_status_callback(task.id, TaskStatus.FAILED)
+                tm.report_error(task.id, error_msg)
+            tm.update_task_state(task.id, TaskStatus.FAILED)
+        tm.check_task_to_process()
+        tm.close()
 
     # On dedicated process
     @staticmethod
     def process_task(data: bytes, queue: multiprocessing.Queue) -> None:
+        tm = TaskManager(run_tasks=False)
         t = Task.from_json(data)
         temp_workspace = tempfile.mkdtemp()
         # Download model
@@ -227,6 +260,7 @@ class TaskManager:
         result = asyncio.run(tuner.tune())
         optimized_model = result
         """
+
         optimized_model = tf.lite.TFLiteConverter.from_keras_model(original_model)
         optimized_model.optimizations = [tf.lite.Optimize.DEFAULT]
         optimized_model = optimized_model.convert()
@@ -237,9 +271,11 @@ class TaskManager:
         bc.add_tf_lite_model(optimized_model, "optimized")
         results = asyncio.run(bc.benchmark())
         for device in t.devices:
-            print(f"{device.identifier()} - {results[device.identifier()]}")
             for result in results[device.identifier()]:
-                print(result)
+                tm.add_result(device.id, result)
         # bc.summary()
         # Here ends
+        bc.clearAllModels()
+        tm.close()
+        del dm
         shutil.rmtree(temp_workspace)

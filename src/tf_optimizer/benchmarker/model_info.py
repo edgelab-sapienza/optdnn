@@ -23,7 +23,3 @@ class ModelInfo:
 
     def get_model_path(self):
         return self.model_path
-
-    def __del__(self):
-        if os.path.exists(self.model_path):
-            os.remove(self.model_path)
