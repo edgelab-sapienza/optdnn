@@ -47,10 +47,10 @@ class Benchmarker:
             sys.stdout.flush()
 
     def __init__(
-            self, use_remote_nodes=False, edge_devices: list[EdgeDevice] = None,
+            self, edge_devices: list[EdgeDevice],
             use_multicore=True,
     ) -> None:
-        self.isOnline = use_remote_nodes
+        self.isOnline = len(edge_devices) > 0
         self.use_multicore = use_multicore
         self.edge_devices = edge_devices
 

@@ -60,15 +60,16 @@ class TaskManager:
     Add a task and return the task with the auto parameters assigned
     """
 
+    #TODO if nodes are empty use the local node in the local container
     def add_task(self, t: Task, nodes: list[tuple[str, int]] = [("127.0.0.1", 12300)], base_url: str = None) -> Task:
         self.db.add(t)
         self.db.commit()
         self.db.flush()
 
         for node in nodes:
-            edge_result = EdgeDevice(node[0], node[1])
-            edge_result.task_id = t.id
-            self.db.add(edge_result)
+            edge_device = EdgeDevice(node[0], node[1])
+            edge_device.task_id = t.id
+            self.db.add(edge_device)
         self.db.commit()
 
         if base_url is not None:
@@ -79,9 +80,12 @@ class TaskManager:
             self.check_task_to_process()
         return t
 
-    def delete_task(self, id: int) -> int:
-        removed_rows = self.db.query(Task).where(Task.id == id).delete()
-        self.db.query(EdgeDevice).where(EdgeDevice.task_id == id).delete()
+    def delete_task(self, task_id: int) -> int:
+        removed_rows = self.db.query(Task).where(Task.id == task_id).delete()
+        self.db.query(EdgeDevice).where(EdgeDevice.task_id == task_id).delete()
+        task = self.get_task_by_id(task_id)
+        device_ids = list(map(lambda x: x.id, task.devices))
+        self.db.query(BenchmarkResult).filter(BenchmarkResult.edge_id.in_(device_ids)).delete()
         self.db.commit()
         return removed_rows
 
@@ -265,7 +269,7 @@ class TaskManager:
         optimized_model.optimizations = [tf.lite.Optimize.DEFAULT]
         optimized_model = optimized_model.convert()
 
-        bc = Benchmarker(use_remote_nodes=True, edge_devices=t.devices)
+        bc = Benchmarker(edge_devices=t.devices)
         asyncio.run(bc.set_dataset(dm))
         bc.add_model(original_model, "original")
         bc.add_tf_lite_model(optimized_model, "optimized")
