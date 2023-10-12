@@ -24,7 +24,7 @@ def get_tflite_model_size(model: bytes):
 
 
 def get_gzipped_file(file):
-    _, zipped_file = tempfile.mkstemp(".zip")
+    _, zipped_file = tempfile.mkstemp("_optimizer.zip")
     with zipfile.ZipFile(zipped_file, "w", compression=zipfile.ZIP_DEFLATED) as f:
         f.write(file, os.path.basename(file))
     return zipped_file

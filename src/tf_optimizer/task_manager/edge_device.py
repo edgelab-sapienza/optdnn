@@ -50,7 +50,6 @@ class EdgeDevice(Base):
             url = fs.get_file_url()
             text_message = url + Protocol.string_delimiter + model_name
             msg = Protocol.build_put_model_file_request(text_message)
-            print(f"FILE AT {model_path} served on URL: {msg}")
             await websocket.send(msg.to_bytes())
             print(f"Uploading: {model_name}")
             fs.serve()  # Blocking

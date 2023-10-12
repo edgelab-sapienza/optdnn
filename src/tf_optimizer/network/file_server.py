@@ -19,6 +19,7 @@ class StateHTTPServer(HTTPServer):
     filename = ""
     allowed_basenames: list = []
     reporthook = None
+    created_files_paths = []
 
 
 class handler(BaseHTTPRequestHandler):
@@ -33,6 +34,7 @@ class handler(BaseHTTPRequestHandler):
                 zipped_path = full_path
             else:
                 zipped_path = get_gzipped_file(full_path)
+                self.server.created_files_paths.append(zipped_path)
             with open(zipped_path, "rb") as fh:
                 maxsize = os.path.getsize(zipped_path)
                 self.send_response(200)
@@ -83,4 +85,8 @@ class FileServer:
             while True:
                 server.handle_request()
                 if server.downloaded is True:
+                    # Remove allocated temp files
+                    for path in server.created_files_paths:
+                        if os.path.exists(path):
+                            os.remove(path)
                     break
