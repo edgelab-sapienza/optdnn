@@ -1,9 +1,14 @@
-import os.path
-from sqlalchemy import Column, Integer, DateTime, String, JSON
-from tf_optimizer import Base
-from enum import IntEnum
 import datetime
+import os.path
 import pickle
+from enum import IntEnum
+from typing import List
+
+from sqlalchemy import Column, Integer, DateTime, String, JSON
+from sqlalchemy.orm import relationship, Mapped
+
+from tf_optimizer import Base
+from tf_optimizer.task_manager.edge_device import EdgeDevice
 
 
 class TaskStatus(IntEnum):
@@ -11,6 +16,11 @@ class TaskStatus(IntEnum):
     PROCESSING = 1
     COMPLETED = 2
     FAILED = 3
+
+
+class OptimizationPriorityInt(IntEnum):
+    SPEED = 0
+    SIZE = 1
 
 
 class Task(Base):
@@ -22,7 +32,6 @@ class Task(Base):
     dataset_url = Column(String, nullable=False)
     dataset_scale = Column(JSON, nullable=False)
     img_size = Column(JSON, nullable=True, default=None)
-    remote_nodes = Column(JSON, nullable=True, default=None)
     # Url called when the optimization
     callback_url = Column(String, nullable=True, default=None)
     batch_size = Column(Integer, nullable=False, default=32)
@@ -30,6 +39,9 @@ class Task(Base):
     # Generated url used to download the file
     download_url = Column(String, nullable=True, default=None)
     error_msg = Column(String, nullable=True, default=None)
+    optimization_priority = Column(Integer, default=OptimizationPriorityInt.SPEED.value)
+
+    devices: Mapped[List["EdgeDevice"]] = relationship(back_populates="task", lazy="joined")
 
     def generate_filename(self) -> str:
         filename = f"task_{self.id}.tflite"
@@ -38,9 +50,9 @@ class Task(Base):
 
     def __str__(self) -> str:
         return (
-            f"ID: {self.id}, status: {self.status}, created_at: {self.created_at}, dataset_scale: {self.dataset_scale}, "
-            + f"model_url: {self.model_url}, dataset_url: {self.dataset_url}, img_size: {self.img_size}, "
-            + f"remote_nodes: {self.remote_nodes}, callback_url: {self.callback_url}, batch_size: {self.batch_size}"
+                f"ID: {self.id}, status: {self.status}, created_at: {self.created_at}, dataset_scale: {self.dataset_scale}, "
+                + f"model_url: {self.model_url}, dataset_url: {self.dataset_url}, img_size: {self.img_size}, "
+                + f"callback_url: {self.callback_url}, batch_size: {self.batch_size}, priority: {self.optimization_priority}"
         )
 
     def __eq__(self, __value: object) -> bool:
@@ -48,18 +60,18 @@ class Task(Base):
             return False
         else:
             return (
-                self.id == __value.id
-                and self.status == __value.status
-                # and self.created_at == __value.created_at
-                and self.model_url == __value.model_url
-                and self.dataset_url == __value.dataset_url
-                and self.dataset_scale == __value.dataset_scale
-                and self.img_size == __value.img_size
-                and self.remote_nodes == __value.remote_nodes
-                and self.callback_url == __value.callback_url
-                and self.batch_size == __value.batch_size
-                and self.pid == __value.pid
-                and self.download_url == __value.download_url
+                    self.id == __value.id
+                    and self.status == __value.status
+                    # and self.created_at == __value.created_at
+                    and self.model_url == __value.model_url
+                    and self.dataset_url == __value.dataset_url
+                    and self.dataset_scale == __value.dataset_scale
+                    and self.img_size == __value.img_size
+                    and self.callback_url == __value.callback_url
+                    and self.batch_size == __value.batch_size
+                    and self.pid == __value.pid
+                    and self.download_url == __value.download_url
+                    and self.optimization_priority == __value.optimization_priority
             )
 
     def to_json(self) -> bytes:
@@ -71,11 +83,12 @@ class Task(Base):
         d["dataset_url"] = self.dataset_url
         d["dataset_scale"] = self.dataset_scale
         d["img_size"] = self.img_size
-        d["remote_nodes"] = self.remote_nodes
         d["batch_size"] = self.batch_size
         d["callback_url"] = self.callback_url
         d["pid"] = self.pid
         d["download_url_callback"] = self.download_url
+        d["devices"] = self.devices
+        d["priority"] = self.optimization_priority
         return pickle.dumps(d)
 
     @staticmethod
@@ -89,9 +102,11 @@ class Task(Base):
         t.dataset_url = data["dataset_url"]
         t.dataset_scale = data["dataset_scale"]
         t.img_size = data["img_size"]
-        t.remote_nodes = data["remote_nodes"]
         t.batch_size = data["batch_size"]
         t.callback_url = data["callback_url"]
         t.pid = data["pid"]
         t.download_url = data["download_url_callback"]
+        t.devices = data["devices"]
+        t.optimization_priority = data["priority"]
+
         return t

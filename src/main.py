@@ -1,6 +1,5 @@
 import argparse
 from tf_optimizer.optimizer.tuner import Tuner
-from tf_optimizer.network.client import Client
 from tf_optimizer.dataset_manager import DatasetManager
 import tensorflow as tf
 import asyncio
@@ -37,7 +36,8 @@ async def main():
     use_remote_nodes = remote_addr is not None
     args = parser.parse_args()
     if use_remote_nodes is True:
-        client = Client(remote_addr, remote_port, args.interface_addr)
+        pass
+        # client = Client(remote_addr, remote_port, args.interface_addr)
     else:
         client = None
 

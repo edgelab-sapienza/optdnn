@@ -1,5 +1,5 @@
-from tf_optimizer.task_manager.task_manager import TaskManager
 from tf_optimizer.task_manager.task import Task, TaskStatus
+from tf_optimizer.task_manager.task_manager import TaskManager
 
 
 class TestClass:
@@ -51,10 +51,11 @@ class TestClass:
         t1.dataset_url = "URL DI PROVA DATASET"
         t1.dataset_scale = "[-1,1]"
         t1.callback_url = "URL CALLBACK"
-        t1.remote_nodes = [["192.168.178.3", 3], ["192.168.178.5", 565]]
         t1.img_size = [200, 200]
-        t2 = Task.from_json(t1.to_json())
-        assert t1 == t2
+        self.tm.add_task(t1, [("192.168.178.1", 8080)])
+        t = self.tm.get_last_task()
+        t2 = Task.from_json(t.to_json())
+        assert t == t2
 
     def teardown_method(self) -> None:
         self.tm.delete_table()

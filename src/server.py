@@ -1,12 +1,14 @@
+import json
+import multiprocessing
+
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
 
-from tf_optimizer.task_manager.optimization_config import OptimizationConfig
-from tf_optimizer.task_manager.task import Task, TaskStatus
+from tf_optimizer.task_manager.optimization_config import OptimizationConfig, OptimizationPriority
+from tf_optimizer.task_manager.task import Task, TaskStatus, OptimizationPriorityInt
 from tf_optimizer.task_manager.task_manager import TaskManager
-import multiprocessing
 
 tags_metadata = [
     {
@@ -40,7 +42,7 @@ tags_metadata = [
 ]
 
 multiprocessing.set_start_method("spawn")
-tm = TaskManager()
+tm = TaskManager(run_tasks=True)
 app = FastAPI(title="TF Optimizer", openapi_tags=tags_metadata)
 
 
@@ -79,14 +81,21 @@ def add_task(optimization_config: OptimizationConfig, request: Request):
     t.model_url = str(optimization_config.model_url)
     t.dataset_url = str(optimization_config.dataset_url)
     t.dataset_scale = optimization_config.dataset_scale
-    t.callback_url = optimization_config.callback_url
+    t.callback_url = str(optimization_config.callback_url)
     t.batch_size = optimization_config.batch_size
     t.img_size = optimization_config.img_size
+    if optimization_config.priority is OptimizationPriority.SPEED:
+        t.optimization_priority = OptimizationPriorityInt.SPEED
+    else:
+        t.optimization_priority = OptimizationPriorityInt.SIZE
+    remote_nodes = []
     if optimization_config.remote_nodes is not None:
         nodes = optimization_config.remote_nodes
-        nodes = list(map(lambda x: (str(x[0]), x[1]), nodes))
-        t.remote_nodes = nodes
-    tm.add_task(t, base_url=request.base_url._url)
+        for node in nodes:
+            ip_address = str(node[0])
+            port = node[1]
+            remote_nodes.append((ip_address, port))
+    tm.add_task(t, base_url=request.base_url._url, nodes=remote_nodes)
     return JSONResponse({"success": True, "task": jsonable_encoder(t)})
 
 
@@ -124,6 +133,7 @@ def get_tasks():
     json_compatible_item_data = jsonable_encoder(all_tasks)
     for e in json_compatible_item_data:
         e["status"] = TaskStatus(e["status"]).name
+        e["optimization_priority"] = OptimizationPriorityInt(e["optimization_priority"]).name
     return JSONResponse(content=json_compatible_item_data)
 
 
@@ -156,6 +166,8 @@ def get_tasks():
 )
 def get_task(task_id: int):
     task = tm.get_task_by_id(task_id)
+    task["status"] = TaskStatus(task["status"]).name
+    task["optimization_priority"] = OptimizationPriority(task["optimization_priority"]).name
     json_compatible_item_data = jsonable_encoder(task)
     return JSONResponse(content=json_compatible_item_data)
 
@@ -229,6 +241,7 @@ def delete_task(task_id: int):
 def resume_task(task_id: int):
     updated_rows = tm.update_task_state(task_id, TaskStatus.PENDING)
     tm.update_task_field(task_id, "error_msg", None)
+    tm.remove_results(task_id)
     if updated_rows > 0:
         return JSONResponse({"success": True, "message": None})
     else:

@@ -1,17 +1,19 @@
-from tf_optimizer.network.client import Client
-from tf_optimizer.benchmarker.model_info import ModelInfo
-from tf_optimizer_core.benchmarker_core import BenchmarkerCore
-from tf_optimizer.dataset_manager import DatasetManager
-from . import utils as utils
-from tf_optimizer.benchmarker.result import Result
-from enum import Enum, auto
-from typing import List
-from termcolor import colored
-from prettytable import PrettyTable
+import asyncio
+import os.path
 import sys
-import os
+from enum import Enum, auto
+from typing import List, Tuple
+
 import tensorflow as tf
-import hashlib
+from prettytable import PrettyTable
+from termcolor import colored
+from tf_optimizer_core.benchmarker_core import BenchmarkerCore
+
+from tf_optimizer.benchmarker.model_info import ModelInfo
+from tf_optimizer.benchmarker.result import Result
+from tf_optimizer.dataset_manager import DatasetManager
+from tf_optimizer.task_manager.edge_device import EdgeDevice
+from . import utils as utils
 
 
 class Ordering(Enum):
@@ -31,30 +33,30 @@ class Benchmarker:
     models = []
     __dataset: DatasetManager = None
     core = None
-    client = None
-    result_cache = {}
+    edge_devices = None
 
     class OfflineProgressBar(BenchmarkerCore.Callback):
         async def progress_callback(
-            self, acc: float, progress: float, tooked_time: float, model_name: str = ""
+                self, acc: float, progress: float, took_time: float, model_name: str = ""
         ):
             current_accuracy = "{0:.2f}".format(acc)
-            formatted_tooked_time = "{0:.2f}".format(tooked_time)
+            formatted_took_time = "{0:.2f}".format(took_time)
             print(
-                f"\rBenchmarking: {model_name} - progress: {int(progress)}% - accuracy: {current_accuracy}% - speed: {formatted_tooked_time} ms",
+                f"\rBenchmarking: {model_name} - progress: {int(progress)}% - accuracy: {current_accuracy}% - speed: {formatted_took_time} ms",
                 end="",
             )
             sys.stdout.flush()
 
     def __init__(
-        self, use_remote_nodes=False, client: Client = None, use_multicore=True
+            self,
+            edge_devices: list[EdgeDevice],
+            use_multicore=True,
     ) -> None:
-        self.isOnline = use_remote_nodes
         self.use_multicore = use_multicore
-        self.client = client
+        self.edge_devices = edge_devices
 
     def add_model(
-        self, model: tf.keras.Sequential, name: str, is_reference: bool = False
+            self, model: tf.keras.Sequential, name: str, is_reference: bool = False
     ) -> None:
         """
         Add a model to the benchmark system
@@ -67,8 +69,9 @@ class Benchmarker:
         self.add_tf_lite_model(converted_model, name, is_reference)
 
     def add_tf_lite_model(
-        self, model: bytes, name: str, is_reference: bool = False
+            self, model: bytes, name: str, is_reference: bool = False
     ) -> None:
+        print(f"ADDING {name} model")
         """
         Add a model to the benchmark system
         :param bytes model: Tensorflow lite model
@@ -78,44 +81,50 @@ class Benchmarker:
         _model = ModelInfo(model, name, is_reference)
         self.models.append(_model)
 
-    async def benchmark(self) -> None:
+    async def benchmark(self) -> dict:
         """
         Benchmark inserted models
         :param model: Unbatch dataset composed by elements of (input, label)
         """
-
-        if self.client is None and self.core is None:
+        results = {}
+        if self.edge_devices is None and self.core is None:
             print("You must first call set_dataset_path")
             return
 
         for model in self.models:
             file_path = model.get_model_path()
             model.size = utils.get_gzipped_model_size(file_path)
+            created_task: List[Tuple[asyncio.Task, int]] = []
 
-            # Start local computing
-            m = hashlib.sha256()
-            m.update(model.get_model())
-            hash_code = m.digest().hex()
-            if hash_code in self.result_cache.keys():
-                res = self.result_cache[hash_code]
-            else:
-                progressBar = Benchmarker.OfflineProgressBar()
-                if self.isOnline:
-                    res = await self.client.send_model(file_path, model.name)
+            for edge_device in self.edge_devices:
+                if str(edge_device.id) not in results.keys():
+                    results[str(edge_device.id)] = []
+
+                # Start local computing
+                if edge_device.is_local_node():
+                    progressBar = Benchmarker.OfflineProgressBar()
+                    task = self.core.test_model(file_path, model.name, progressBar)
                 else:
-                    res = await self.core.test_model(file_path, model.name, progressBar)
-                self.result_cache[hash_code] = res
+                    task = edge_device.send_model(file_path, model.name)
 
-            model.time = res.time
-            model.accuracy = res.accuracy
+                asyncio_task = asyncio.create_task(task)
+                created_task.append((asyncio_task, edge_device.id))
 
-            os.remove(file_path)
-            print()
+            for task in created_task:
+                result = await task[0]
+                device_id = task[1]
+                # Append time
+                model.time = result.time
+                model.accuracy = result.accuracy
+
+                results[str(device_id)].append(model)
+
+        return results
 
     def summary(
-        self,
-        fieldToOrder: FieldToOrder = FieldToOrder.InsertedOrder,
-        order: Ordering = Ordering.Asc,
+            self,
+            fieldToOrder: FieldToOrder = FieldToOrder.InsertedOrder,
+            order: Ordering = Ordering.Asc,
     ) -> List[Result]:
         results = []
 
@@ -150,15 +159,15 @@ class Benchmarker:
             index += 1
 
             # Append time
-            tooked_time = model.time
-            isFastest = tooked_time == min(map(lambda x: x.time, self.models))
-            isSlowest = tooked_time == max(map(lambda x: x.time, self.models))
-            tooked_time_str = "{0:.4f}".format(tooked_time)
+            took_time = model.time
+            isFastest = took_time == min(map(lambda x: x.time, self.models))
+            isSlowest = took_time == max(map(lambda x: x.time, self.models))
+            took_time_str = "{0:.4f}".format(took_time)
             if isFastest:
-                tooked_time_str = colored(tooked_time_str, "green")
+                took_time_str = colored(took_time_str, "green")
             elif isSlowest:
-                tooked_time_str = colored(tooked_time_str, "red")
-            elements.append(tooked_time_str)
+                took_time_str = colored(took_time_str, "red")
+            elements.append(took_time_str)
 
             # Append speedup
             speedup = slowest_time / model.time
@@ -197,20 +206,32 @@ class Benchmarker:
     async def set_dataset(self, dataset: DatasetManager):
         self.__dataset = dataset
         dataset_path = self.__dataset.get_validation_folder()
-        if self.isOnline:
-            if self.client is None:
-                raise Exception(
-                    "You want to use a client, but it is None in the costructor"
+        created_tasks = []
+        for edge_device in self.edge_devices:
+            if edge_device.is_local_node() and self.core is None:
+                self.core = BenchmarkerCore(
+                    dataset_path,
+                    interval=dataset.scale,
+                    use_multicore=self.use_multicore,
                 )
-            await self.client.send_dataset(dataset_path)
-        else:
-            self.core = BenchmarkerCore(
-                dataset_path, interval=dataset.scale, use_multicore=self.use_multicore
-            )
+            else:
+                print(
+                    f"SENDING DS {dataset_path} at {edge_device.ip_address}:{edge_device.port}"
+                )
+                task = asyncio.create_task(edge_device.send_dataset(dataset_path))
+                created_tasks.append(task)
+
+        for task in created_tasks:
+            await task
 
     async def clear_online_node(self):
-        if self.isOnline and self.client is not None:
-            await self.client.close()
+        if self.edge_devices is not None:
+            for edge_device in self.edge_devices:
+                await edge_device.close()
 
     def clearAllModels(self) -> None:
+        for model in self.models:
+            path = model.get_model_path()
+            if os.path.exists(path):
+                os.remove(path)
         self.models.clear()

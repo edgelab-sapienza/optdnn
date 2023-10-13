@@ -1,24 +1,27 @@
-from tf_optimizer.optimizer.optimizer import Optimizer
+import logging
+import multiprocessing
+import os
+import pathlib
+import sys
+import tempfile
+from datetime import datetime
+from statistics import mean
+from time import time
+
+import tensorflow as tf
+from tf_optimizer_core.benchmarker_core import BenchmarkerCore, Result
+
 from tf_optimizer.benchmarker.benchmarker import Benchmarker
+from tf_optimizer.benchmarker.utils import get_tflite_model_size
+from tf_optimizer.configuration import Configuration
 from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.optimizer.optimization_param import (
     OptimizationParam,
     QuantizationLayerToPrune,
     QuantizationTechnique,
 )
-from tf_optimizer.benchmarker.utils import get_tflite_model_size
-from tf_optimizer_core.benchmarker_core import BenchmarkerCore
-from tf_optimizer.configuration import Configuration
-import tensorflow as tf
-import tempfile
-import pathlib
-import multiprocessing
-import logging
-import sys
-import os
-from datetime import datetime
-from statistics import mean
-from time import time
+from tf_optimizer.optimizer.optimizer import Optimizer
+from tf_optimizer.task_manager.task import OptimizationPriorityInt
 
 
 class SpeedMeausureCallback(tf.keras.callbacks.Callback):
@@ -46,14 +49,12 @@ class Tuner:
             self,
             original_model: tf.keras.Sequential,
             dataset: DatasetManager,
-            use_remote_nodes=False,
-            client=None,
             batchsize=32,
-            optimized_model_path=None
+            optimized_model_path=None,
+            priority: OptimizationPriorityInt = OptimizationPriorityInt.SPEED
     ) -> None:
         self.original_model = original_model
         self.dataset_manager = dataset
-        self.bm = Benchmarker(use_remote_nodes, client=client)
         self.batch_size = batchsize
         self.optimization_param = OptimizationParam()
         self.optimization_param.toggle_pruning(True)
@@ -65,6 +66,7 @@ class Tuner:
         self.applied_prs = []
         self.no_cluster_prs = []
         self.max_cluster_fails = 0
+        self.isSpeedPrioritized = priority is OptimizationPriorityInt.SPEED
         now = datetime.now()
         date_time = now.strftime("%m-%d-%Y-%H:%M:%S")
         os.makedirs("logs", exist_ok=True)
@@ -123,12 +125,12 @@ class Tuner:
         metrics = model.evaluate(
             dm.generate_batched_dataset(batch_size)[1], callbacks=[speedCallback]
         )
-        res = BenchmarkerCore.Result()
+        res = Result()
         res.time = speedCallback.get_avg_time()
         res.accuracy = metrics[1]
         q.put(res)
 
-    async def test_model(self, model) -> BenchmarkerCore.Result:
+    async def test_model(self, model) -> Result:
         if isinstance(model, bytes):
             print("Measuring tflite model accuracy")
             bc = BenchmarkerCore(
@@ -170,7 +172,7 @@ class Tuner:
 
     async def getOptimizedModel(
             self, model_path, targetAccuracy: float, percentagePrecision: float = 2.0
-    ) -> tuple[bytes, BenchmarkerCore.Result]:
+    ) -> tuple[bytes, Result]:
         iterations = 0
         pruningRatio = 0.5
         minPruningRatio = 0
@@ -262,22 +264,16 @@ class Tuner:
             self.no_cluster_prs.append(pruningRatio)
         return tflite_model, model_result
 
-    async def tune(self) -> None:
-        await self.bm.set_dataset(self.dataset_manager)
-
+    async def tune(self) -> bytes:
         # Get parameters from config
         right = self.configuation.getConfig("CLUSTERING", "max_clusters_number")
         left = self.configuation.getConfig("CLUSTERING", "min_clusters_numbers")
         delta_precision = self.configuation.getConfig("TUNER", "DELTA_PERCENTAGE")
-        isTimePrioritized = (
-                self.configuation.getConfig("TUNER", "second_priority") == "SPEED"
-        )
+        isClusteringEnabled = self.configuation.getConfig("CLUSTERING", "enabled")
 
         # Step 0, save original model
         original_model_path = tempfile.mkdtemp()
         self.original_model.save(original_model_path)
-        original_model = tf.keras.models.load_model(original_model_path)
-        self.bm.add_model(original_model, "original", is_reference=True)
 
         model_performance = await self.test_model(original_model_path)
         targetAccuracy = model_performance.accuracy
@@ -285,7 +281,7 @@ class Tuner:
         self.optimization_param.toggle_clustering(True)
         cached_result = {}
 
-        while abs(left - right) > 2:
+        while isClusteringEnabled and abs(left - right) > 2:
             left_third = int(left + (right - left) / 3)
             right_third = int(right - (right - left) / 3)
             tf.keras.backend.clear_session()
@@ -301,7 +297,7 @@ class Tuner:
                     targetAccuracy,
                     percentagePrecision=delta_precision,
                 )
-                result_left = result.time if isTimePrioritized else result.size
+                result_left = result.time if self.isSpeedPrioritized else result.size
                 cached_result[left_third] = result_left
 
             tf.keras.backend.clear_session()
@@ -317,7 +313,7 @@ class Tuner:
                     targetAccuracy,
                     percentagePrecision=delta_precision,
                 )
-                result_right = result.time if isTimePrioritized else result.size
+                result_right = result.time if self.isSpeedPrioritized else result.size
                 cached_result[right_third] = result_right
 
             logging.info(
@@ -333,12 +329,9 @@ class Tuner:
         choosen_clusters = (right + left) / 2  # Should be the minimum
 
         self.optimization_param.set_number_of_cluster(int(choosen_clusters))
-        self.optimization_param.toggle_clustering(True)
+        self.optimization_param.toggle_clustering(True and isClusteringEnabled)
         optimized_model, _ = await self.getOptimizedModel(
             original_model_path, targetAccuracy, percentagePrecision=delta_precision
         )
 
-        dirs = os.path.dirname(self.optimized_model_path)
-        os.makedirs(dirs, exist_ok=True)
-        with open(self.optimized_model_path, "wb") as f:
-            f.write(optimized_model)
+        return optimized_model
