@@ -1,7 +1,8 @@
+import asyncio
 import os.path
 import sys
 from enum import Enum, auto
-from typing import List
+from typing import List, Tuple
 
 import tensorflow as tf
 from prettytable import PrettyTable
@@ -90,22 +91,33 @@ class Benchmarker:
             print("You must first call set_dataset_path")
             return
 
-        for edge_device in self.edge_devices:
-            results[edge_device.identifier()] = []
-            for model in self.models:
-                file_path = model.get_model_path()
-                model.size = utils.get_gzipped_model_size(file_path)
+        for model in self.models:
+            file_path = model.get_model_path()
+            model.size = utils.get_gzipped_model_size(file_path)
+            created_task: List[Tuple[asyncio.Task, int]] = []
+
+            for edge_device in self.edge_devices:
+                if str(edge_device.id) not in results.keys():
+                    results[str(edge_device.id)] = []
 
                 # Start local computing
                 if edge_device.is_local_node():
                     progressBar = Benchmarker.OfflineProgressBar()
-                    res = await self.core.test_model(file_path, model.name, progressBar)
+                    task = self.core.test_model(file_path, model.name, progressBar)
                 else:
-                    res = await edge_device.send_model(file_path, model.name)
+                    task = edge_device.send_model(file_path, model.name)
 
-                model.time = res.time
-                model.accuracy = res.accuracy
-                results[edge_device.identifier()].append(model)
+                asyncio_task = asyncio.create_task(task)
+                created_task.append((asyncio_task, edge_device.id))
+
+            for task in created_task:
+                result = await task[0]
+                device_id = task[1]
+                # Append time
+                model.time = result.time
+                model.accuracy = result.accuracy
+
+                results[str(device_id)].append(model)
 
         return results
 

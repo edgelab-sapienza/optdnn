@@ -1,7 +1,7 @@
 import os
 import shutil
 import sys
-from typing import List
+from typing import List, Union
 
 import websockets
 from sqlalchemy import Column, Integer, String, ForeignKey
@@ -43,7 +43,7 @@ class EdgeDevice(Base):
         for result in self.results:
             print(f"IM {self.identifier()}, MODEL :{self.inference_time}")
 
-    async def send_model(self, model_path: str, model_name: str) -> Result:
+    async def send_model(self, model_path: str, model_name: str) -> Union[Result, None]:
         uri = "ws://{}:{}".format(self.ip_address, self.port)
         async with websockets.connect(uri, ping_interval=None) as websocket:
             fs = FileServer(model_path, local_address=self.local_address)
@@ -93,7 +93,7 @@ class EdgeDevice(Base):
 
     def is_local_node(self):
         return (
-            self.port == 0 and self.alias == "local" and self.ip_address == "localhost"
+                self.port == 0 and self.alias == "local" and self.ip_address == "localhost"
         )
 
     def identifier(self) -> str:

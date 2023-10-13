@@ -289,7 +289,7 @@ class TaskManager:
 
         img_shape = (detected_input_size[1], detected_input_size[2])
         dm = DatasetManager(dataset_folder, img_size=img_shape, scale=t.dataset_scale)
-
+        '''
         tuner = Tuner(
             original_model,
             dm,
@@ -298,19 +298,21 @@ class TaskManager:
         )
         result = asyncio.run(tuner.tune())
         optimized_model = result
-
-        # Quick test
-        # optimized_model = tf.lite.TFLiteConverter.from_keras_model(original_model)
-        # optimized_model.optimizations = [tf.lite.Optimize.DEFAULT]
-        # optimized_model = optimized_model.convert()
+        '''
 
         bc = Benchmarker(edge_devices=t.devices)
         asyncio.run(bc.set_dataset(dm))
         bc.add_model(original_model, "original")
+
+        # Quick test
+        optimized_model = tf.lite.TFLiteConverter.from_keras_model(original_model)
+        optimized_model.optimizations = [tf.lite.Optimize.DEFAULT]
+        optimized_model = optimized_model.convert()
         bc.add_tf_lite_model(optimized_model, "optimized")
+
         results = asyncio.run(bc.benchmark())
         for device in t.devices:
-            for result in results[device.identifier()]:
+            for result in results[str(device.id)]:
                 tm.add_result(device.id, result)
         # bc.summary()
         # Here ends
