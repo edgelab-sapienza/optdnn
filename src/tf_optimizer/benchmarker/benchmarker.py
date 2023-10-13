@@ -36,7 +36,7 @@ class Benchmarker:
 
     class OfflineProgressBar(BenchmarkerCore.Callback):
         async def progress_callback(
-            self, acc: float, progress: float, took_time: float, model_name: str = ""
+                self, acc: float, progress: float, took_time: float, model_name: str = ""
         ):
             current_accuracy = "{0:.2f}".format(acc)
             formatted_took_time = "{0:.2f}".format(took_time)
@@ -47,15 +47,15 @@ class Benchmarker:
             sys.stdout.flush()
 
     def __init__(
-        self,
-        edge_devices: list[EdgeDevice],
-        use_multicore=True,
+            self,
+            edge_devices: list[EdgeDevice],
+            use_multicore=True,
     ) -> None:
         self.use_multicore = use_multicore
         self.edge_devices = edge_devices
 
     def add_model(
-        self, model: tf.keras.Sequential, name: str, is_reference: bool = False
+            self, model: tf.keras.Sequential, name: str, is_reference: bool = False
     ) -> None:
         """
         Add a model to the benchmark system
@@ -68,7 +68,7 @@ class Benchmarker:
         self.add_tf_lite_model(converted_model, name, is_reference)
 
     def add_tf_lite_model(
-        self, model: bytes, name: str, is_reference: bool = False
+            self, model: bytes, name: str, is_reference: bool = False
     ) -> None:
         print(f"ADDING {name} model")
         """
@@ -110,9 +110,9 @@ class Benchmarker:
         return results
 
     def summary(
-        self,
-        fieldToOrder: FieldToOrder = FieldToOrder.InsertedOrder,
-        order: Ordering = Ordering.Asc,
+            self,
+            fieldToOrder: FieldToOrder = FieldToOrder.InsertedOrder,
+            order: Ordering = Ordering.Asc,
     ) -> List[Result]:
         results = []
 

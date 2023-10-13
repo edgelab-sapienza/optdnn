@@ -17,6 +17,7 @@ from tf_optimizer import Base
 from tf_optimizer.benchmarker.benchmarker import Benchmarker
 from tf_optimizer.benchmarker.model_info import ModelInfo
 from tf_optimizer.dataset_manager import DatasetManager
+from tf_optimizer.optimizer.tuner import Tuner
 from tf_optimizer.task_manager.benchmark_result import BenchmarkResult
 from tf_optimizer.task_manager.edge_device import EdgeDevice
 from tf_optimizer.task_manager.task import Task, TaskStatus
@@ -62,10 +63,10 @@ class TaskManager:
 
     # TODO if nodes are empty use the local node in the local container
     def add_task(
-        self,
-        t: Task,
-        nodes: list[tuple[str, int]] = [("localhost", 0)],
-        base_url: str = None,
+            self,
+            t: Task,
+            nodes: list[tuple[str, int]] = [("localhost", 0)],
+            base_url: str = None,
     ) -> Task:
         self.db.add(t)
         self.db.commit()
@@ -165,9 +166,9 @@ class TaskManager:
     def terminate_task(self, id_task: int):
         task = self.get_task_by_id(id_task)
         if (
-            task is not None
-            and task.pid is not None
-            and task.status == TaskStatus.PROCESSING
+                task is not None
+                and task.pid is not None
+                and task.status == TaskStatus.PROCESSING
         ):
             p = psutil.Process(task.pid)
             p.terminate()
@@ -284,7 +285,6 @@ class TaskManager:
         img_shape = (detected_input_size[1], detected_input_size[2])
         dm = DatasetManager(dataset_folder, img_size=img_shape, scale=t.dataset_scale)
 
-        """
         tuner = Tuner(
             original_model,
             dm,
@@ -293,11 +293,11 @@ class TaskManager:
         )
         result = asyncio.run(tuner.tune())
         optimized_model = result
-        """
 
-        optimized_model = tf.lite.TFLiteConverter.from_keras_model(original_model)
-        optimized_model.optimizations = [tf.lite.Optimize.DEFAULT]
-        optimized_model = optimized_model.convert()
+        # Quick test
+        # optimized_model = tf.lite.TFLiteConverter.from_keras_model(original_model)
+        # optimized_model.optimizations = [tf.lite.Optimize.DEFAULT]
+        # optimized_model = optimized_model.convert()
 
         bc = Benchmarker(edge_devices=t.devices)
         asyncio.run(bc.set_dataset(dm))

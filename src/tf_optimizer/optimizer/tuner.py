@@ -48,14 +48,11 @@ class Tuner:
             self,
             original_model: tf.keras.Sequential,
             dataset: DatasetManager,
-            use_remote_nodes=False,
-            client=None,
             batchsize=32,
             optimized_model_path=None
     ) -> None:
         self.original_model = original_model
         self.dataset_manager = dataset
-        self.bm = Benchmarker(use_remote_nodes, edge_devices=client)
         self.batch_size = batchsize
         self.optimization_param = OptimizationParam()
         self.optimization_param.toggle_pruning(True)
@@ -265,8 +262,6 @@ class Tuner:
         return tflite_model, model_result
 
     async def tune(self) -> bytes:
-        await self.bm.set_dataset(self.dataset_manager)
-
         # Get parameters from config
         right = self.configuation.getConfig("CLUSTERING", "max_clusters_number")
         left = self.configuation.getConfig("CLUSTERING", "min_clusters_numbers")
@@ -274,12 +269,11 @@ class Tuner:
         isTimePrioritized = (
                 self.configuation.getConfig("TUNER", "second_priority") == "SPEED"
         )
+        isClusteringEnabled = self.configuation.getConfig("CLUSTERING", "enabled")
 
         # Step 0, save original model
         original_model_path = tempfile.mkdtemp()
         self.original_model.save(original_model_path)
-        original_model = tf.keras.models.load_model(original_model_path)
-        self.bm.add_model(original_model, "original", is_reference=True)
 
         model_performance = await self.test_model(original_model_path)
         targetAccuracy = model_performance.accuracy
@@ -287,7 +281,7 @@ class Tuner:
         self.optimization_param.toggle_clustering(True)
         cached_result = {}
 
-        while False and abs(left - right) > 2:
+        while isClusteringEnabled and abs(left - right) > 2:
             left_third = int(left + (right - left) / 3)
             right_third = int(right - (right - left) / 3)
             tf.keras.backend.clear_session()
@@ -335,15 +329,9 @@ class Tuner:
         choosen_clusters = (right + left) / 2  # Should be the minimum
 
         self.optimization_param.set_number_of_cluster(int(choosen_clusters))
-        self.optimization_param.toggle_clustering(True)
+        self.optimization_param.toggle_clustering(True and isClusteringEnabled)
         optimized_model, _ = await self.getOptimizedModel(
             original_model_path, targetAccuracy, percentagePrecision=delta_precision
         )
 
         return optimized_model
-        """
-        dirs = os.path.dirname(self.optimized_model_path)
-        os.makedirs(dirs, exist_ok=True)
-        with open(self.optimized_model_path, "wb") as f:
-            f.write(optimized_model)
-        """
