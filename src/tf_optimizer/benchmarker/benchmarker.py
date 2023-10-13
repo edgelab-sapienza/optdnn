@@ -206,6 +206,7 @@ class Benchmarker:
     async def set_dataset(self, dataset: DatasetManager):
         self.__dataset = dataset
         dataset_path = self.__dataset.get_validation_folder()
+        created_tasks = []
         for edge_device in self.edge_devices:
             if edge_device.is_local_node() and self.core is None:
                 self.core = BenchmarkerCore(
@@ -217,7 +218,11 @@ class Benchmarker:
                 print(
                     f"SENDING DS {dataset_path} at {edge_device.ip_address}:{edge_device.port}"
                 )
-                await edge_device.send_dataset(dataset_path)
+                task = asyncio.create_task(edge_device.send_dataset(dataset_path))
+                created_tasks.append(task)
+
+        for task in created_tasks:
+            await task
 
     async def clear_online_node(self):
         if self.edge_devices is not None:
