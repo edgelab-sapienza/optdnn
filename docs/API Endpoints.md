@@ -37,6 +37,10 @@ This service provides API endpoints that can be used to optimize models.
     -  **batch_size**
        - Integer representing the batch size, default is 32
        -  `32`
+    -  **priority**
+      - String that can contains "size" or "speed"
+      - `"speed"` means that the optimization prioritize model speed
+      - `"size"` means that the optimization prioritize model size
 
   
 

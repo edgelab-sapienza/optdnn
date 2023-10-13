@@ -6,8 +6,8 @@ from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
 
-from tf_optimizer.task_manager.optimization_config import OptimizationConfig
-from tf_optimizer.task_manager.task import Task, TaskStatus
+from tf_optimizer.task_manager.optimization_config import OptimizationConfig, OptimizationPriority
+from tf_optimizer.task_manager.task import Task, TaskStatus, OptimizationPriorityInt
 from tf_optimizer.task_manager.task_manager import TaskManager
 
 tags_metadata = [
@@ -84,6 +84,10 @@ def add_task(optimization_config: OptimizationConfig, request: Request):
     t.callback_url = str(optimization_config.callback_url)
     t.batch_size = optimization_config.batch_size
     t.img_size = optimization_config.img_size
+    if optimization_config.priority is OptimizationPriority.SPEED:
+        t.optimization_priority = OptimizationPriorityInt.SPEED
+    else:
+        t.optimization_priority = OptimizationPriorityInt.SIZE
     remote_nodes = []
     if optimization_config.remote_nodes is not None:
         nodes = optimization_config.remote_nodes
@@ -129,6 +133,7 @@ def get_tasks():
     json_compatible_item_data = jsonable_encoder(all_tasks)
     for e in json_compatible_item_data:
         e["status"] = TaskStatus(e["status"]).name
+        e["optimization_priority"] = OptimizationPriorityInt(e["optimization_priority"]).name
     return JSONResponse(content=json_compatible_item_data)
 
 
@@ -161,6 +166,8 @@ def get_tasks():
 )
 def get_task(task_id: int):
     task = tm.get_task_by_id(task_id)
+    task["status"] = TaskStatus(task["status"]).name
+    task["optimization_priority"] = OptimizationPriority(task["optimization_priority"]).name
     json_compatible_item_data = jsonable_encoder(task)
     return JSONResponse(content=json_compatible_item_data)
 

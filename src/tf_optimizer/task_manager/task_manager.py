@@ -95,13 +95,18 @@ class TaskManager:
         return t
 
     def delete_task(self, task_id: int) -> int:
+        task = self.get_task_by_id(task_id)
+        if task is not None and task.devices is not None:
+            device_ids = list(map(lambda x: x.id, task.devices))
+        else:
+            device_ids = []
         removed_rows = self.db.query(Task).where(Task.id == task_id).delete()
         self.db.query(EdgeDevice).where(EdgeDevice.task_id == task_id).delete()
-        task = self.get_task_by_id(task_id)
-        device_ids = list(map(lambda x: x.id, task.devices))
-        self.db.query(BenchmarkResult).filter(
-            BenchmarkResult.edge_id.in_(device_ids)
-        ).delete()
+
+        if len(device_ids) > 0:
+            self.db.query(BenchmarkResult).filter(
+                BenchmarkResult.edge_id.in_(device_ids)
+            ).delete()
         self.db.commit()
         return removed_rows
 

@@ -18,6 +18,11 @@ class TaskStatus(IntEnum):
     FAILED = 3
 
 
+class OptimizationPriorityInt(IntEnum):
+    SPEED = 0
+    SIZE = 1
+
+
 class Task(Base):
     __tablename__ = "tasks"
     id = Column(Integer, primary_key=True, index=True)
@@ -34,6 +39,7 @@ class Task(Base):
     # Generated url used to download the file
     download_url = Column(String, nullable=True, default=None)
     error_msg = Column(String, nullable=True, default=None)
+    optimization_priority = Column(Integer, default=OptimizationPriorityInt.SPEED.value)
 
     devices: Mapped[List["EdgeDevice"]] = relationship(back_populates="task", lazy="joined")
 
@@ -46,7 +52,7 @@ class Task(Base):
         return (
                 f"ID: {self.id}, status: {self.status}, created_at: {self.created_at}, dataset_scale: {self.dataset_scale}, "
                 + f"model_url: {self.model_url}, dataset_url: {self.dataset_url}, img_size: {self.img_size}, "
-                + f"callback_url: {self.callback_url}, batch_size: {self.batch_size}"
+                + f"callback_url: {self.callback_url}, batch_size: {self.batch_size}, priority: {self.optimization_priority}"
         )
 
     def __eq__(self, __value: object) -> bool:
@@ -65,6 +71,7 @@ class Task(Base):
                     and self.batch_size == __value.batch_size
                     and self.pid == __value.pid
                     and self.download_url == __value.download_url
+                    and self.optimization_priority == __value.optimization_priority
             )
 
     def to_json(self) -> bytes:
@@ -81,6 +88,7 @@ class Task(Base):
         d["pid"] = self.pid
         d["download_url_callback"] = self.download_url
         d["devices"] = self.devices
+        d["priority"] = self.optimization_priority
         return pickle.dumps(d)
 
     @staticmethod
@@ -99,4 +107,6 @@ class Task(Base):
         t.pid = data["pid"]
         t.download_url = data["download_url_callback"]
         t.devices = data["devices"]
+        t.optimization_priority = data["priority"]
+
         return t

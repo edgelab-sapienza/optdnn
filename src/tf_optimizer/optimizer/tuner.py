@@ -21,6 +21,7 @@ from tf_optimizer.optimizer.optimization_param import (
     QuantizationTechnique,
 )
 from tf_optimizer.optimizer.optimizer import Optimizer
+from tf_optimizer.task_manager.task import OptimizationPriorityInt
 
 
 class SpeedMeausureCallback(tf.keras.callbacks.Callback):
@@ -49,7 +50,8 @@ class Tuner:
             original_model: tf.keras.Sequential,
             dataset: DatasetManager,
             batchsize=32,
-            optimized_model_path=None
+            optimized_model_path=None,
+            priority: OptimizationPriorityInt = OptimizationPriorityInt.SPEED
     ) -> None:
         self.original_model = original_model
         self.dataset_manager = dataset
@@ -64,6 +66,7 @@ class Tuner:
         self.applied_prs = []
         self.no_cluster_prs = []
         self.max_cluster_fails = 0
+        self.isSpeedPrioritized = priority is OptimizationPriorityInt.SPEED
         now = datetime.now()
         date_time = now.strftime("%m-%d-%Y-%H:%M:%S")
         os.makedirs("logs", exist_ok=True)
@@ -266,9 +269,6 @@ class Tuner:
         right = self.configuation.getConfig("CLUSTERING", "max_clusters_number")
         left = self.configuation.getConfig("CLUSTERING", "min_clusters_numbers")
         delta_precision = self.configuation.getConfig("TUNER", "DELTA_PERCENTAGE")
-        isTimePrioritized = (
-                self.configuation.getConfig("TUNER", "second_priority") == "SPEED"
-        )
         isClusteringEnabled = self.configuation.getConfig("CLUSTERING", "enabled")
 
         # Step 0, save original model
@@ -297,7 +297,7 @@ class Tuner:
                     targetAccuracy,
                     percentagePrecision=delta_precision,
                 )
-                result_left = result.time if isTimePrioritized else result.size
+                result_left = result.time if self.isSpeedPrioritized else result.size
                 cached_result[left_third] = result_left
 
             tf.keras.backend.clear_session()
@@ -313,7 +313,7 @@ class Tuner:
                     targetAccuracy,
                     percentagePrecision=delta_precision,
                 )
-                result_right = result.time if isTimePrioritized else result.size
+                result_right = result.time if self.isSpeedPrioritized else result.size
                 cached_result[right_third] = result_right
 
             logging.info(
