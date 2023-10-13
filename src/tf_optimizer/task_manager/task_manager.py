@@ -60,14 +60,27 @@ class TaskManager:
     Add a task and return the task with the auto parameters assigned
     """
 
-    #TODO if nodes are empty use the local node in the local container
-    def add_task(self, t: Task, nodes: list[tuple[str, int]] = [("127.0.0.1", 12300)], base_url: str = None) -> Task:
+    # TODO if nodes are empty use the local node in the local container
+    def add_task(
+        self,
+        t: Task,
+        nodes: list[tuple[str, int]] = [("localhost", 0)],
+        base_url: str = None,
+    ) -> Task:
         self.db.add(t)
         self.db.commit()
         self.db.flush()
 
+        if len(nodes) == 0:
+            nodes = [("localhost", 0)]
+
         for node in nodes:
-            edge_device = EdgeDevice(node[0], node[1])
+            if node[0] == "localhost" and node[1] == 0:
+                # It is the local node
+                edge_device = EdgeDevice(node[0], node[1])
+                edge_device.alias = "local"
+            else:
+                edge_device = EdgeDevice(node[0], node[1])
             edge_device.task_id = t.id
             self.db.add(edge_device)
         self.db.commit()
@@ -85,21 +98,38 @@ class TaskManager:
         self.db.query(EdgeDevice).where(EdgeDevice.task_id == task_id).delete()
         task = self.get_task_by_id(task_id)
         device_ids = list(map(lambda x: x.id, task.devices))
-        self.db.query(BenchmarkResult).filter(BenchmarkResult.edge_id.in_(device_ids)).delete()
+        self.db.query(BenchmarkResult).filter(
+            BenchmarkResult.edge_id.in_(device_ids)
+        ).delete()
         self.db.commit()
         return removed_rows
 
     def get_task_by_id(self, id: int) -> Union[Task, None]:
-        return self.db.query(Task).select_from(Task).join(EdgeDevice, EdgeDevice.task_id == Task.id).where(
-            Task.id == id).first()
+        return (
+            self.db.query(Task)
+            .select_from(Task)
+            .join(EdgeDevice, EdgeDevice.task_id == Task.id)
+            .where(Task.id == id)
+            .first()
+        )
 
     def get_last_task(self) -> Task:
-        return self.db.query(Task).select_from(Task).join(EdgeDevice, EdgeDevice.task_id == Task.id).order_by(
-            desc(Task.id)).first()
+        return (
+            self.db.query(Task)
+            .select_from(Task)
+            .join(EdgeDevice, EdgeDevice.task_id == Task.id)
+            .order_by(desc(Task.id))
+            .first()
+        )
 
     def get_all_task(self) -> list[Task]:
-        return self.db.query(Task).select_from(Task).join(EdgeDevice, EdgeDevice.task_id == Task.id).order_by(
-            desc(Task.id)).all()
+        return (
+            self.db.query(Task)
+            .select_from(Task)
+            .join(EdgeDevice, EdgeDevice.task_id == Task.id)
+            .order_by(desc(Task.id))
+            .all()
+        )
 
     def update_task_state(self, id_task: int, status: TaskStatus) -> int:
         updated_rows = self.update_task_field(id_task, "status", status)
@@ -110,7 +140,11 @@ class TaskManager:
     def remove_results(self, id_task: int):
         task = self.get_task_by_id(id_task)
         device_ids = list(map(lambda x: x.id, task.devices))
-        res = self.db.query(BenchmarkResult).filter(BenchmarkResult.edge_id.in_(device_ids)).delete()
+        res = (
+            self.db.query(BenchmarkResult)
+            .filter(BenchmarkResult.edge_id.in_(device_ids))
+            .delete()
+        )
         self.db.commit()
         return res
 
@@ -131,9 +165,9 @@ class TaskManager:
     def terminate_task(self, id_task: int):
         task = self.get_task_by_id(id_task)
         if (
-                task is not None
-                and task.pid is not None
-                and task.status == TaskStatus.PROCESSING
+            task is not None
+            and task.pid is not None
+            and task.status == TaskStatus.PROCESSING
         ):
             p = psutil.Process(task.pid)
             p.terminate()
@@ -173,16 +207,12 @@ class TaskManager:
             self.update_task_state(older_task.id, TaskStatus.PROCESSING)
             t = Thread(
                 target=TaskManager.create_processing_process,
-                args=(
-                    older_task.to_json(),
-                ),
+                args=(older_task.to_json(),),
             )
             t.start()
 
     @staticmethod
-    def create_processing_process(
-            t: bytes
-    ):
+    def create_processing_process(t: bytes):
         task: Task = Task.from_json(t)
         tm = TaskManager(run_tasks=False)
         tm.update_task_state(task.id, TaskStatus.PROCESSING)

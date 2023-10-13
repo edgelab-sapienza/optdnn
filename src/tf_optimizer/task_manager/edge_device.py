@@ -23,7 +23,9 @@ class EdgeDevice(Base):
     # inference_time = Column(JSON, default=None)
     task_id = Column(ForeignKey("tasks.id"))
     task: Mapped["Task"] = relationship(back_populates="devices")
-    results: Mapped[List["BenchmarkResult"]] = relationship(back_populates="edge", lazy="joined")
+    results: Mapped[List["BenchmarkResult"]] = relationship(
+        back_populates="edge", lazy="joined"
+    )
 
     local_address = None
 
@@ -41,9 +43,7 @@ class EdgeDevice(Base):
         for result in self.results:
             print(f"IM {self.identifier()}, MODEL :{self.inference_time}")
 
-    async def send_model(
-            self, model_path: str, model_name: str
-    ) -> Result:
+    async def send_model(self, model_path: str, model_name: str) -> Result:
         uri = "ws://{}:{}".format(self.ip_address, self.port)
         async with websockets.connect(uri, ping_interval=None) as websocket:
             fs = FileServer(model_path, local_address=self.local_address)
@@ -90,6 +90,11 @@ class EdgeDevice(Base):
         async with websockets.connect(uri) as websocket:
             close_msg = Protocol(PayloadMeans.Close, b"")
             await websocket.send(close_msg.to_bytes())
+
+    def is_local_node(self):
+        return (
+            self.port == 0 and self.alias == "local" and self.ip_address == "localhost"
+        )
 
     def identifier(self) -> str:
         return f"{self.ip_address}:{self.port}"
