@@ -21,6 +21,7 @@ from tf_optimizer.optimizer.optimization_param import (
     QuantizationTechnique,
 )
 from tf_optimizer.optimizer.optimizer import Optimizer
+from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
 from tf_optimizer.task_manager.task import OptimizationPriorityInt
 
 
@@ -100,7 +101,7 @@ class Tuner:
             )
         else:
             print(f"QUANTIZATION TYPE:{qTech} NOT VALID")
-            exit()
+            exit(ProcessErrorCode.WrongQuantizationType)
 
     @staticmethod
     def measure_keras_accuracy_process(

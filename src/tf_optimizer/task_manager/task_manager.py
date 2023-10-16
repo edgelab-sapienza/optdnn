@@ -20,6 +20,7 @@ from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.optimizer.tuner import Tuner
 from tf_optimizer.task_manager.benchmark_result import BenchmarkResult
 from tf_optimizer.task_manager.edge_device import EdgeDevice
+from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
 from tf_optimizer.task_manager.task import Task, TaskStatus
 
 
@@ -224,12 +225,10 @@ class TaskManager:
         tm.update_task_state(task.id, TaskStatus.PROCESSING)
         tm.close()
 
-        queue = multiprocessing.Queue()
         p = multiprocessing.Process(
             target=TaskManager.process_task,
             args=(
                 t,
-                queue,
             ),
         )
         p.start()
@@ -242,16 +241,19 @@ class TaskManager:
                 # A get request to the API
                 requests.get(task.callback_url, params=payload)
         else:
-            error_msg = queue.get()
-            if error_msg is not None and type(error_msg) is str:
-                tm.report_error(task.id, error_msg)
+            if p.exitcode == ProcessErrorCode.InputShapeNotDetectable:
+                msg = "Cannot detect model input size, provides it manually using the parameter image_size"
+                tm.report_error(task.id, msg)
+            if p.exitcode == ProcessErrorCode.WrongQuantizationType:
+                msg = "Quantization type not supported, check config.ini file"
+                tm.report_error(task.id, msg)
             tm.update_task_state(task.id, TaskStatus.FAILED)
         tm.check_task_to_process()
         tm.close()
 
     # On dedicated process
     @staticmethod
-    def process_task(data: bytes, queue: multiprocessing.Queue) -> None:
+    def process_task(data: bytes) -> None:
         tm = TaskManager(run_tasks=False)
         t = Task.from_json(data)
         temp_workspace = tempfile.mkdtemp()
@@ -283,9 +285,7 @@ class TaskManager:
                 detected_input_size[3],
             )
         if detected_input_size[1] is None and detected_input_size[2] is None:
-            msg = "Cannot detect model input size, provides it manually using the parameter image_size"
-            queue.put(msg)
-            exit(-1)
+            exit(ProcessErrorCode.InputShapeNotDetectable)
 
         img_shape = (detected_input_size[1], detected_input_size[2])
         dm = DatasetManager(dataset_folder, img_size=img_shape, scale=t.dataset_scale)

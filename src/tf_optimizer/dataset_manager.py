@@ -62,7 +62,7 @@ class DatasetManager:
         if self.__files_dataset__ is None:
             all_files = os.path.join(os.path.join(self.dataset_path, "*"), "*")
 
-            # It is runned only once
+            # It is run only once
             self.__files_dataset__ = tf.data.Dataset.list_files(
                 all_files,
                 shuffle=False,
