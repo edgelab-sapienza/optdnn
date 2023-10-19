@@ -272,6 +272,9 @@ class TaskManager:
         with ZipFile(dataset_zip, "r") as zObject:
             zObject.extractall(path=dataset_folder)
 
+        for gpu in tf.config.list_physical_devices('GPU'):
+            tf.config.experimental.set_memory_growth(gpu, True)
+
         original_model = tf.keras.models.load_model(model_path)
         img_size = t.img_size
         detected_input_size = original_model.input_shape
@@ -289,7 +292,7 @@ class TaskManager:
 
         img_shape = (detected_input_size[1], detected_input_size[2])
         dm = DatasetManager(dataset_folder, img_size=img_shape, scale=t.dataset_scale)
-        '''
+
         tuner = Tuner(
             original_model,
             dm,
@@ -298,16 +301,15 @@ class TaskManager:
         )
         result = asyncio.run(tuner.tune())
         optimized_model = result
-        '''
 
         bc = Benchmarker(edge_devices=t.devices)
         asyncio.run(bc.set_dataset(dm))
         bc.add_model(original_model, "original")
 
         # Quick test
-        optimized_model = tf.lite.TFLiteConverter.from_keras_model(original_model)
-        optimized_model.optimizations = [tf.lite.Optimize.DEFAULT]
-        optimized_model = optimized_model.convert()
+        # optimized_model = tf.lite.TFLiteConverter.from_keras_model(original_model)
+        # optimized_model.optimizations = [tf.lite.Optimize.DEFAULT]
+        # optimized_model = optimized_model.convert()
         bc.add_tf_lite_model(optimized_model, "optimized")
 
         results = asyncio.run(bc.benchmark())
