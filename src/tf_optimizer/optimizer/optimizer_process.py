@@ -119,7 +119,6 @@ class OptimizerProcess:
         gpus = tf.config.experimental.list_physical_devices("GPU")
         gpu = gpus[0]
         tf.config.experimental.set_memory_growth(gpu, True)
-        model = tf.keras.models.load_model(model_path)
         optimizationParam = OptimizationParam.fromJSON(serial_optimization_param)
         dataset_manager = DatasetManager.fromJSON(serial_dataset_manager)
         force_clustering_sparcing_preserve = False
@@ -131,12 +130,23 @@ class OptimizerProcess:
         }
         # Cluster a whole model
         cluster_weights = tfmot.clustering.keras.cluster_weights
-        clustered_model = cluster_weights(
-            model,
-            number_of_clusters=optimizationParam.get_number_of_cluster(),
-            cluster_centroids_init=CentroidInitialization.KMEANS_PLUS_PLUS,
-            **clustering_params,
-        )
+        try:
+            model = tf.keras.models.load_model(model_path)
+            clustered_model = cluster_weights(
+                model,
+                number_of_clusters=optimizationParam.get_number_of_cluster(),
+                cluster_centroids_init=CentroidInitialization.KMEANS_PLUS_PLUS,
+                **clustering_params,
+            )
+        except tf.errors.InvalidArgumentError as e:
+            print("Cannot use KMEANS++, DENSITY BASED APPROACH IS USED")
+            model = tf.keras.models.load_model(model_path)
+            clustered_model = cluster_weights(
+                model,
+                number_of_clusters=optimizationParam.get_number_of_cluster(),
+                cluster_centroids_init=CentroidInitialization.DENSITY_BASED,
+                **clustering_params,
+            )
         # Use smaller learning rate for fine-tuning clustered model
         optimizer = tf.keras.optimizers.Adam(
             learning_rate=1e-5  # model.optimizer.learning_rate.numpy()
