@@ -113,6 +113,7 @@ class Tuner:
             lr: float,
             from_logits: bool,
             q: multiprocessing.Queue,
+            model_problem: ModelProblemInt
     ):
         print("Measuring keras model accuracy")
         print(f"model path:{model_path}")
@@ -122,8 +123,13 @@ class Tuner:
         dm = DatasetManager.fromJSON(dataset_manager)
 
         optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
-        loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=from_logits)
-        model.compile(optimizer=optimizer, loss=loss, metrics=["accuracy"])
+        if model_problem == ModelProblemInt.CATEGORICAL_CLASSIFICATION:
+            loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=from_logits)
+            model.compile(optimizer=optimizer, loss=loss, metrics=["accuracy"])
+        else:
+            loss = tf.keras.losses.BinaryCrossentropy(from_logits=from_logits)
+            model.compile(optimizer=optimizer, loss=loss, metrics=["binary_accuracy"])
+
         speedCallback = SpeedMeausureCallback()
         metrics = model.evaluate(
             dm.generate_batched_dataset(batch_size)[1], callbacks=[speedCallback]
@@ -137,7 +143,7 @@ class Tuner:
         if isinstance(model, bytes):
             print("Measuring tflite model accuracy")
             bc = BenchmarkerCore(
-                self.dataset_manager.get_validation_folder(), self.dataset_manager.scale
+                self.dataset_manager.get_validation_folder(), self.dataset_manager.scale, use_multicore=True
             )
             result = await bc.test_model(
                 model, callback=Benchmarker.OfflineProgressBar()
@@ -166,6 +172,7 @@ class Tuner:
                     lr,
                     from_logits,
                     q,
+                    self.model_problem
                 ),
             )
             p.start()
