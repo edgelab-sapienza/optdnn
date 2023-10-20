@@ -23,7 +23,7 @@ class OptimizationConfig(BaseModel):
                                                    description="URL used to download the .keras model")
     dataset_url: Union[HttpUrl, IPv4Address] = Query(example="http://datasethost.com/myhost.zip",
                                                      description="URL used to download the .zip file of the dataset")
-    dataset_scale: Tuple[int, int] = Field(example=[-1, 1], description="Dataset desired scale")
+    dataset_scale: Tuple[float, float] = Field(example=[-1, 1], description="Dataset desired scale")
     img_size: Union[Tuple[int, int], None] = Field(example=[224, 224],
                                                    description="Model input image size (default autodetected)",
                                                    default=None)
