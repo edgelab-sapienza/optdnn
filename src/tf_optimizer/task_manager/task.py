@@ -40,7 +40,7 @@ class Task(Base):
     download_url = Column(String, nullable=True, default=None)
     error_msg = Column(String, nullable=True, default=None)
     optimization_priority = Column(Integer, default=OptimizationPriorityInt.SPEED.value)
-
+    model_problem = Column(Integer)
     devices: Mapped[List["EdgeDevice"]] = relationship(back_populates="task", lazy="joined")
 
     def generate_filename(self) -> str:
@@ -72,6 +72,7 @@ class Task(Base):
                     and self.pid == __value.pid
                     and self.download_url == __value.download_url
                     and self.optimization_priority == __value.optimization_priority
+                    and self.model_problem == __value.model_problem
             )
 
     def to_json(self) -> bytes:
@@ -89,6 +90,7 @@ class Task(Base):
         d["download_url_callback"] = self.download_url
         d["devices"] = self.devices
         d["priority"] = self.optimization_priority
+        d["model_problem"] = self.model_problem
         return pickle.dumps(d)
 
     @staticmethod
@@ -108,5 +110,6 @@ class Task(Base):
         t.download_url = data["download_url_callback"]
         t.devices = data["devices"]
         t.optimization_priority = data["priority"]
+        t.model_problem = data["model_problem"]
 
         return t

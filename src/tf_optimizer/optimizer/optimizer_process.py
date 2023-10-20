@@ -7,7 +7,7 @@ from tensorflow_model_optimization.python.core.sparsity.keras import prunable_la
 from tensorflow_model_optimization.python.core.sparsity.keras.pruning_policy import PruningPolicy
 
 from tf_optimizer.dataset_manager import DatasetManager
-from tf_optimizer.optimizer.optimization_param import OptimizationParam
+from tf_optimizer.optimizer.optimization_param import OptimizationParam, ModelProblemInt
 
 """
 This class contains all the static code that will be spawned on dedicated processes for the optimization
@@ -54,6 +54,7 @@ class OptimizerProcess:
             batch_size: int,
             optimization_param: bytes,
             pipe,
+            problem_type: ModelProblemInt
     ) -> tf.keras.Sequential:
         gpus = tf.config.experimental.list_physical_devices("GPU")
         gpu = gpus[0]
@@ -83,8 +84,12 @@ class OptimizerProcess:
             from_logits = model.loss.get_config()["from_logits"]
         except AttributeError:
             from_logits = True
-        loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=from_logits)
-        pruned_model.compile(optimizer=optimizer, loss=loss, metrics=["accuracy"])
+        if problem_type == ModelProblemInt.CATEGORICAL_CLASSIFICATION:
+            loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=from_logits)
+            pruned_model.compile(optimizer=optimizer, loss=loss, metrics=["accuracy"])
+        else:
+            loss = tf.keras.losses.BinaryCrossentropy(from_logits=from_logits)
+            pruned_model.compile(optimizer=optimizer, loss=loss, metrics=["binary_accuracy"])
         print("PUNING STARTED")
         pruned_model.fit(
             train_ds,
@@ -93,7 +98,10 @@ class OptimizerProcess:
             callbacks=callbacks,
             batch_size=batch_size,
         )
-        val_accuracy = pruned_model.history.history["val_accuracy"]
+        if problem_type == ModelProblemInt.CATEGORICAL_CLASSIFICATION:
+            val_accuracy = pruned_model.history.history["val_accuracy"]
+        else:
+            val_accuracy = pruned_model.history.history["val_binary_accuracy"]
         pipe.send(val_accuracy[-1])
         pruned_model = tfmot.sparsity.keras.strip_pruning(pruned_model)
         OptimizerProcess.static_save_model(pruned_model, model_path)
@@ -106,6 +114,7 @@ class OptimizerProcess:
             serial_optimization_param: bytes,
             batch_size: int,
             pipe,
+            problem_type: ModelProblemInt
     ) -> None:
         gpus = tf.config.experimental.list_physical_devices("GPU")
         gpu = gpus[0]
@@ -132,8 +141,12 @@ class OptimizerProcess:
         optimizer = tf.keras.optimizers.Adam(
             learning_rate=1e-5  # model.optimizer.learning_rate.numpy()
         )
-        loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-        clustered_model.compile(optimizer=optimizer, loss=loss, metrics=["accuracy"])
+        if problem_type == ModelProblemInt.CATEGORICAL_CLASSIFICATION:
+            loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+            clustered_model.compile(optimizer=optimizer, loss=loss, metrics=["accuracy"])
+        else:
+            loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+            clustered_model.compile(optimizer=optimizer, loss=loss, metrics=["binary_accuracy"])
         # Fine-tune model
         train_ds, test_ds = dataset_manager.generate_batched_dataset(
             batch_size=batch_size
@@ -147,7 +160,10 @@ class OptimizerProcess:
             epochs=1,
             batch_size=batch_size,
         )
-        val_accuracy = clustered_model.history.history["val_accuracy"]
+        if problem_type == ModelProblemInt.CATEGORICAL_CLASSIFICATION:
+            val_accuracy = clustered_model.history.history["val_accuracy"]
+        else:
+            val_accuracy = clustered_model.history.history["val_binary_accuracy"]
         pipe.send(val_accuracy[-1])
         clustered_stripped_model = tfmot.clustering.keras.strip_clustering(
             clustered_model
@@ -160,6 +176,7 @@ class OptimizerProcess:
             serial_dataset_manager: bytes,
             serial_optimization_param: bytes,
             batch_size: int,
+            problem_type: ModelProblemInt
     ) -> None:
         gpus = tf.config.experimental.list_physical_devices("GPU")
         gpu = gpus[0]
@@ -197,8 +214,12 @@ class OptimizerProcess:
             from_logits = model.loss.get_config()["from_logits"]
         except AttributeError:
             from_logits = True
-        loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=from_logits)
-        model.compile(optimizer=optimizer, loss=loss, metrics=["accuracy"])
+        if problem_type == ModelProblemInt.CATEGORICAL_CLASSIFICATION:
+            loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=from_logits)
+            model.compile(optimizer=optimizer, loss=loss, metrics=["accuracy"])
+        else:
+            loss = tf.keras.losses.BinaryCrossentropy(from_logits=from_logits)
+            model.compile(optimizer=optimizer, loss=loss, metrics=["binary_accuracy"])
         # Fine-tune the model
         train_ds, test_ds = dataset_manager.generate_batched_dataset(
             batch_size=batch_size

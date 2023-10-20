@@ -18,7 +18,7 @@ from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.optimizer.optimization_param import (
     OptimizationParam,
     QuantizationLayerToPrune,
-    QuantizationTechnique,
+    QuantizationTechnique, ModelProblemInt,
 )
 from tf_optimizer.optimizer.optimizer import Optimizer
 from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
@@ -50,6 +50,7 @@ class Tuner:
             self,
             original_model: tf.keras.Sequential,
             dataset: DatasetManager,
+            model_problem: ModelProblemInt,
             batchsize=32,
             optimized_model_path=None,
             priority: OptimizationPriorityInt = OptimizationPriorityInt.SPEED
@@ -68,6 +69,7 @@ class Tuner:
         self.no_cluster_prs = []
         self.max_cluster_fails = 0
         self.isSpeedPrioritized = priority is OptimizationPriorityInt.SPEED
+        self.model_problem = model_problem
         now = datetime.now()
         date_time = now.strftime("%m-%d-%Y-%H:%M:%S")
         os.makedirs("logs", exist_ok=True)
@@ -228,6 +230,7 @@ class Tuner:
             tf.keras.backend.clear_session()
             optimizer = Optimizer(
                 model_path,
+                model_problem=self.model_problem,
                 optimization_param=self.optimization_param,
                 batch_size=self.batch_size,
                 dataset_manager=self.dataset_manager,

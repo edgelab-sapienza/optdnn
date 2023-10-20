@@ -10,14 +10,9 @@ import tensorflow as tf
 from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.optimizer.optimization_param import (
     OptimizationParam,
-    QuantizationTechnique,
+    QuantizationTechnique, ModelProblemInt,
 )
 from tf_optimizer.optimizer.optimizer_process import OptimizerProcess
-
-
-class ModelProblemInt(IntEnum):
-    CATEGORICAL_CLASSIFICATION = 0
-    BINARY_CLASSIFICATION = 1
 
 
 class Optimizer:
@@ -29,6 +24,7 @@ class Optimizer:
             model,
             dataset_manager: DatasetManager,
             optimization_param: OptimizationParam,
+            model_problem: ModelProblemInt,
             batch_size=32,
             early_breakup_accuracy=None,
             logger=None,
@@ -51,6 +47,7 @@ class Optimizer:
         self.optimizationParam = optimization_param
         self.early_breakup_accuracy = early_breakup_accuracy
         self.logger = logger
+        self.model_problem = model_problem
 
     def __representative_dataset_gen__(self):
         for image_batch, labels_batch in (
@@ -79,6 +76,7 @@ class Optimizer:
                     self.batch_size,
                     self.optimizationParam.toJSON(),
                     sender,
+                    self.model_problem
                 ),
             )
             p.start()
@@ -108,6 +106,7 @@ class Optimizer:
                     self.optimizationParam.toJSON(),
                     self.batch_size,
                     sender,
+                    self.model_problem
                 ),
             )
             p.start()
@@ -140,6 +139,7 @@ class Optimizer:
                         self.dataset_manager.toJSON(),
                         self.optimizationParam.toJSON(),
                         self.batch_size,
+                        self.model_problem
                     ),
                 )
                 p.start()
