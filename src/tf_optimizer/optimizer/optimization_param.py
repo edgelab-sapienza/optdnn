@@ -1,9 +1,12 @@
-from enum import Enum, auto
+from enum import Enum, auto, IntEnum
 from dataclasses import dataclass
 import tensorflow as tf
 import tensorflow_model_optimization as tfmot
 import pickle
 
+class ModelProblemInt(IntEnum):
+    CATEGORICAL_CLASSIFICATION = 0
+    BINARY_CLASSIFICATION = 1
 
 @dataclass
 class QuantizationLayerToPrune(Enum):

@@ -1,14 +1,20 @@
+from enum import Enum
+from ipaddress import IPv4Address
+from typing import Union, Tuple
+
+from fastapi import Query
 from pydantic import BaseModel, Field
 from pydantic.networks import HttpUrl
-from ipaddress import IPv4Address
-from typing import Union, Tuple, Optional
-from fastapi import Query
-from enum import Enum
 
 
 class OptimizationPriority(str, Enum):
     SPEED = "speed"
     SIZE = "size"
+
+
+class ModelProblem(str, Enum):
+    CATEGORICAL_CLASSIFICATION = "categorical_classification"
+    BINARY_CLASSIFICATION = "binary_classification"
 
 
 class OptimizationConfig(BaseModel):
@@ -17,7 +23,7 @@ class OptimizationConfig(BaseModel):
                                                    description="URL used to download the .keras model")
     dataset_url: Union[HttpUrl, IPv4Address] = Query(example="http://datasethost.com/myhost.zip",
                                                      description="URL used to download the .zip file of the dataset")
-    dataset_scale: Tuple[int, int] = Field(example=[-1, 1], description="Dataset desired scale")
+    dataset_scale: Tuple[float, float] = Field(example=[-1, 1], description="Dataset desired scale")
     img_size: Union[Tuple[int, int], None] = Field(example=[224, 224],
                                                    description="Model input image size (default autodetected)",
                                                    default=None)
@@ -33,6 +39,8 @@ class OptimizationConfig(BaseModel):
     batch_size: int = Field(example=[32], description="Batch size", default=32)
     priority: OptimizationPriority = Field(example=OptimizationPriority.SIZE, description="Optimization priority",
                                            default=OptimizationPriority.SPEED)
+    model_problem: ModelProblem = Field(example=ModelProblem.CATEGORICAL_CLASSIFICATION,
+                                        description="Type of model problem")
 
     def __str__(self) -> str:
         return (

@@ -6,7 +6,8 @@ from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
 
-from tf_optimizer.task_manager.optimization_config import OptimizationConfig, OptimizationPriority
+from tf_optimizer.optimizer.optimization_param import ModelProblemInt
+from tf_optimizer.task_manager.optimization_config import OptimizationConfig, OptimizationPriority, ModelProblem
 from tf_optimizer.task_manager.task import Task, TaskStatus, OptimizationPriorityInt
 from tf_optimizer.task_manager.task_manager import TaskManager
 
@@ -88,6 +89,13 @@ def add_task(optimization_config: OptimizationConfig, request: Request):
         t.optimization_priority = OptimizationPriorityInt.SPEED
     else:
         t.optimization_priority = OptimizationPriorityInt.SIZE
+
+    print(optimization_config.model_problem)
+    if optimization_config.model_problem is ModelProblem.CATEGORICAL_CLASSIFICATION:
+        t.model_problem = ModelProblemInt.CATEGORICAL_CLASSIFICATION
+    else:
+        t.model_problem = ModelProblemInt.BINARY_CLASSIFICATION
+
     remote_nodes = []
     if optimization_config.remote_nodes is not None:
         nodes = optimization_config.remote_nodes

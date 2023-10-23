@@ -10,12 +10,12 @@ class DatasetManager:
     VALIDATION_SPLIT = 1 / 3
 
     def __init__(
-        self,
-        dataset_path,
-        img_size,
-        scale=[0, 1],
-        random_seed: int = None,
-        images_to_take=-1,
+            self,
+            dataset_path,
+            img_size,
+            scale: list[float] = [0.0, 1.0],
+            random_seed: int = None,
+            images_to_take=-1,
     ) -> None:
         self.dataset_path = dataset_path
         self.scale = scale
@@ -115,10 +115,10 @@ class DatasetManager:
         if isinstance(__value, DatasetManager):
             dm: DatasetManager = __value
             return (
-                self.dataset_path == dm.dataset_path
-                and self.img_size == dm.img_size
-                and self.scale == dm.scale
-                and self.__random_seed__ == dm.__random_seed__
+                    self.dataset_path == dm.dataset_path
+                    and self.img_size == dm.img_size
+                    and self.scale == dm.scale
+                    and self.__random_seed__ == dm.__random_seed__
             )
         else:
             return False
