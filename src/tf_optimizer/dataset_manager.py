@@ -3,7 +3,6 @@ import tensorflow as tf
 import tempfile
 import shutil
 import pickle
-from random import randint
 
 
 class DatasetManager:
@@ -13,7 +12,7 @@ class DatasetManager:
             self,
             dataset_path,
             img_size,
-            scale: list[float] = [0.0, 1.0],
+            scale: tuple[float, float] = (0.0, 1.0),
             random_seed: int = None,
             images_to_take=-1,
     ) -> None:
@@ -23,7 +22,7 @@ class DatasetManager:
         self.__files_dataset__ = None
         self.__validation_folder__ = None
         if random_seed is None:
-            self.__random_seed__ = randint(1, 1000)
+            self.__random_seed__ = 1234
         else:
             self.__random_seed__ = random_seed
         self.__images_to_take__ = images_to_take

@@ -8,9 +8,12 @@ from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import Mapped, relationship
 from tf_optimizer_core.benchmarker_core import Result
 from tf_optimizer_core.protocol import Protocol, PayloadMeans
-from tf_optimizer.task_manager.benchmark_result import BenchmarkResult
+
 from tf_optimizer import Base
+from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.network.file_server import FileServer
+from tf_optimizer.task_manager.benchmark_result import BenchmarkResult
+from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
 
 
 class EdgeDevice(Base):
@@ -67,20 +70,29 @@ class EdgeDevice(Base):
                 else:
                     return None
 
-    async def send_dataset(self, dataset: str):
+    async def send_dataset(self, dataset_manager: DatasetManager):
         base_name = "my_dataset"
+        dataset = dataset_manager.get_validation_folder()
         filename = shutil.make_archive(base_name, "zip", dataset)
 
         uri = "ws://{}:{}".format(self.ip_address, self.port)
         fs = FileServer(filename, local_address=self.local_address)
-        async with websockets.connect(uri) as websocket:
-            url = fs.get_file_url().encode("utf-8")
-            msg = Protocol.build_put_dataset_file_request(url)
-            print(f"DS URL {msg}")
-            await websocket.send(msg.to_bytes())
-            print("Uploading dataset")
-            fs.serve()  # Blocking
-            msg = await websocket.recv()
+        try:
+            async with websockets.connect(uri) as websocket:
+                content = f"{dataset_manager.scale[0]}{Protocol.string_delimiter}{dataset_manager.scale[1]}"
+                msg = Protocol(PayloadMeans.DatasetScale, content.encode())
+                await websocket.send(msg.to_bytes())
+
+                url = fs.get_file_url().encode("utf-8")
+                msg = Protocol.build_put_dataset_file_request(url)
+                print(f"DS URL {msg}")
+                await websocket.send(msg.to_bytes())
+                print("Uploading dataset")
+                fs.serve()  # Blocking
+                msg = await websocket.recv()
+        except ConnectionRefusedError:
+            print("CONNECTION REFUSED")
+            exit(ProcessErrorCode.ConnectionRefused)
 
         if os.path.exists(filename):
             os.remove(filename)

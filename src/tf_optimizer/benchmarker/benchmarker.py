@@ -218,7 +218,7 @@ class Benchmarker:
                 print(
                     f"SENDING DS {dataset_path} at {edge_device.ip_address}:{edge_device.port}"
                 )
-                task = asyncio.create_task(edge_device.send_dataset(dataset_path))
+                task = asyncio.create_task(edge_device.send_dataset(dataset))
                 created_tasks.append(task)
 
         for task in created_tasks:

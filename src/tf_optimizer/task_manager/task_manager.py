@@ -12,6 +12,7 @@ import requests
 import tensorflow as tf
 from sqlalchemy import create_engine, desc, asc
 from sqlalchemy.orm import sessionmaker
+from tf_optimizer_core.benchmarker_core import BenchmarkerCore
 
 from tf_optimizer import Base
 from tf_optimizer.benchmarker.benchmarker import Benchmarker
@@ -244,8 +245,11 @@ class TaskManager:
             if p.exitcode == ProcessErrorCode.InputShapeNotDetectable:
                 msg = "Cannot detect model input size, provides it manually using the parameter image_size"
                 tm.report_error(task.id, msg)
-            if p.exitcode == ProcessErrorCode.WrongQuantizationType:
+            elif p.exitcode == ProcessErrorCode.WrongQuantizationType:
                 msg = "Quantization type not supported, check config.ini file"
+                tm.report_error(task.id, msg)
+            elif p.exitcode == ProcessErrorCode.ConnectionRefused:
+                msg = "Connection refused by the node"
                 tm.report_error(task.id, msg)
             tm.update_task_state(task.id, TaskStatus.FAILED)
         tm.check_task_to_process()
