@@ -288,6 +288,7 @@ class Tuner:
 
         model_performance = await self.test_model(original_model_path)
         targetAccuracy = model_performance.accuracy
+        logging.info(f"Target accuracy: {targetAccuracy}")
 
         self.optimization_param.toggle_clustering(True)
         cached_result = {}
