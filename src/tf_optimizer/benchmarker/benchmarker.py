@@ -107,6 +107,13 @@ class Benchmarker:
                 else:
                     task = edge_device.send_model(file_path, model.name)
 
+                result = await task
+                print(result)
+                model.time = result.time
+                model.accuracy = result.accuracy
+                results[str(result.node_id)].append(model)
+
+            """
                 asyncio_task = asyncio.create_task(task)
                 created_task.append((asyncio_task, edge_device.id))
 
@@ -118,7 +125,8 @@ class Benchmarker:
                 model.accuracy = result.accuracy
 
                 results[str(device_id)].append(model)
-
+                print(f"{device_id} in {result.accuracy}")
+            """
         return results
 
     def summary(

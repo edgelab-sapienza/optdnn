@@ -147,6 +147,8 @@ class TaskManager:
 
     def remove_results(self, id_task: int):
         task = self.get_task_by_id(id_task)
+        if task is None:
+            return
         device_ids = list(map(lambda x: x.id, task.devices))
         res = (
             self.db.query(BenchmarkResult)
@@ -296,24 +298,26 @@ class TaskManager:
 
         img_shape = (detected_input_size[1], detected_input_size[2])
         dm = DatasetManager(dataset_folder, img_size=img_shape, scale=t.dataset_scale)
-        tuner = Tuner(
-            original_model,
-            dm,
-            model_problem=t.model_problem,
-            batchsize=t.batch_size,
-            optimized_model_path=t.generate_filename(),
-        )
-        result = asyncio.run(tuner.tune())
-        optimized_model = result
+        test = True
+        if not test:
+            tuner = Tuner(
+                original_model,
+                dm,
+                model_problem=t.model_problem,
+                batchsize=t.batch_size,
+                optimized_model_path=t.generate_filename(),
+            )
+            result = asyncio.run(tuner.tune())
+            optimized_model = result
+        else:
+            # Quick test
+            optimized_model = tf.lite.TFLiteConverter.from_keras_model(original_model)
+            optimized_model.optimizations = [tf.lite.Optimize.DEFAULT]
+            optimized_model = optimized_model.convert()
 
         bc = Benchmarker(edge_devices=t.devices)
         asyncio.run(bc.set_dataset(dm))
         bc.add_model(original_model, "original")
-
-        # Quick test
-        # optimized_model = tf.lite.TFLiteConverter.from_keras_model(original_model)
-        # optimized_model.optimizations = [tf.lite.Optimize.DEFAULT]
-        # optimized_model = optimized_model.convert()
         bc.add_tf_lite_model(optimized_model, "optimized")
 
         results = asyncio.run(bc.benchmark())

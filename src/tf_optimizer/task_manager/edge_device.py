@@ -47,11 +47,13 @@ class EdgeDevice(Base):
             print(f"IM {self.identifier()}, MODEL :{self.inference_time}")
 
     async def send_model(self, model_path: str, model_name: str) -> Union[Result, None]:
+
         uri = "ws://{}:{}".format(self.ip_address, self.port)
+        print(f"SENDING {model_path}")
         async with websockets.connect(uri, ping_interval=None) as websocket:
             fs = FileServer(model_path, local_address=self.local_address)
             url = fs.get_file_url()
-            text_message = url + Protocol.string_delimiter + model_name
+            text_message = url + Protocol.string_delimiter + model_name + Protocol.string_delimiter + str(self.id)
             msg = Protocol.build_put_model_file_request(text_message)
             await websocket.send(msg.to_bytes())
             print(f"Uploading: {model_name}")
@@ -62,7 +64,7 @@ class EdgeDevice(Base):
 
                 if p_msg.cmd == PayloadMeans.Result:
                     print()
-                    return Protocol.get_evaulation_by_msg(p_msg)
+                    return Protocol.get_result_by_msg(p_msg)
                 elif p_msg.cmd == PayloadMeans.ProgressUpdate:
                     payload = p_msg.payload.decode("utf-8")
                     print(f"\r{payload}", end="")
