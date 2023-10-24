@@ -1,10 +1,9 @@
-import json
 import multiprocessing
 
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, FileResponse
 
 from tf_optimizer.optimizer.optimization_param import ModelProblemInt
 from tf_optimizer.task_manager.optimization_config import OptimizationConfig, OptimizationPriority, ModelProblem
@@ -42,7 +41,7 @@ tags_metadata = [
     },
 ]
 
-multiprocessing.set_start_method("spawn")
+#multiprocessing.set_start_method("spawn")
 tm = TaskManager(run_tasks=True)
 app = FastAPI(title="TF Optimizer", openapi_tags=tags_metadata)
 
@@ -317,4 +316,9 @@ def stop_task(task_id: int):
 
 def start():
     """Launched with `poetry run start` at root level"""
+    multiprocessing.set_start_method("spawn")
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)
+
+
+if __name__ == "__main__":
+    start()

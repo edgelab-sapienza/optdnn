@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import os.path
 import sys
 from enum import Enum, auto
@@ -108,10 +109,10 @@ class Benchmarker:
                     task = edge_device.send_model(file_path, model.name)
 
                 result = await task
-                print(result)
-                model.time = result.time
-                model.accuracy = result.accuracy
-                results[str(result.node_id)].append(model)
+                new_model = copy.deepcopy(model)
+                new_model.time = result.time
+                new_model.accuracy = result.accuracy
+                results[str(result.node_id)].append(new_model)
 
             """
                 asyncio_task = asyncio.create_task(task)

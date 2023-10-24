@@ -298,7 +298,7 @@ class TaskManager:
 
         img_shape = (detected_input_size[1], detected_input_size[2])
         dm = DatasetManager(dataset_folder, img_size=img_shape, scale=t.dataset_scale)
-        test = True
+        test = False
         if not test:
             tuner = Tuner(
                 original_model,
