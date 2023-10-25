@@ -79,22 +79,19 @@ class EdgeDevice(Base):
 
         uri = "ws://{}:{}".format(self.ip_address, self.port)
         fs = FileServer(filename, local_address=self.local_address)
-        try:
-            async with websockets.connect(uri) as websocket:
-                content = f"{dataset_manager.scale[0]}{Protocol.string_delimiter}{dataset_manager.scale[1]}"
-                msg = Protocol(PayloadMeans.DatasetScale, content.encode())
-                await websocket.send(msg.to_bytes())
+        async with websockets.connect(uri) as websocket:
+            content = f"{dataset_manager.scale[0]}{Protocol.string_delimiter}{dataset_manager.scale[1]}"
+            msg = Protocol(PayloadMeans.DatasetScale, content.encode())
+            await websocket.send(msg.to_bytes())
 
-                url = fs.get_file_url().encode("utf-8")
-                msg = Protocol.build_put_dataset_file_request(url)
-                print(f"DS URL {msg}")
-                await websocket.send(msg.to_bytes())
-                print("Uploading dataset")
-                fs.serve()  # Blocking
-                msg = await websocket.recv()
-        except ConnectionRefusedError:
-            print("CONNECTION REFUSED")
-            exit(ProcessErrorCode.ConnectionRefused)
+            url = fs.get_file_url().encode("utf-8")
+            msg = Protocol.build_put_dataset_file_request(url)
+            print(f"DS URL {msg}")
+            await websocket.send(msg.to_bytes())
+            print("Uploading dataset")
+            fs.serve()  # Blocking
+            msg = await websocket.recv()
+
 
         if os.path.exists(filename):
             os.remove(filename)

@@ -316,7 +316,10 @@ class TaskManager:
             optimized_model = optimized_model.convert()
 
         bc = Benchmarker(edge_devices=t.devices)
-        asyncio.run(bc.set_dataset(dm))
+        try:
+            asyncio.run(bc.set_dataset(dm))
+        except ConnectionRefusedError:
+            exit(ProcessErrorCode.ConnectionRefused)
         bc.add_model(original_model, "original")
         bc.add_tf_lite_model(optimized_model, "optimized")
 
