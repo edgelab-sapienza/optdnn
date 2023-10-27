@@ -2,7 +2,6 @@ import asyncio
 import multiprocessing
 import os
 import shutil
-import tempfile
 from threading import Thread
 from typing import Union
 from zipfile import ZipFile
@@ -17,6 +16,8 @@ from tf_optimizer import Base
 from tf_optimizer.benchmarker.benchmarker import Benchmarker
 from tf_optimizer.benchmarker.model_info import ModelInfo
 from tf_optimizer.dataset_manager import DatasetManager
+from tf_optimizer.optimizer.optimization_param import OptimizationParam
+from tf_optimizer.optimizer.optimizer import Optimizer
 from tf_optimizer.optimizer.tuner import Tuner
 from tf_optimizer.task_manager.benchmark_result import BenchmarkResult
 from tf_optimizer.task_manager.edge_device import EdgeDevice
@@ -257,6 +258,9 @@ class TaskManager:
                 msg = "Connection refused by the node"
                 tm.report_error(task.id, msg)
             tm.update_task_state(task.id, TaskStatus.FAILED)
+        task_workspace = task.get_workspace_path()
+        if os.path.exists(task_workspace) and os.path.isdir(task_workspace):
+            shutil.rmtree(task_workspace)
         tm.check_task_to_process()
         tm.close()
 
@@ -265,7 +269,8 @@ class TaskManager:
     def process_task(data: bytes) -> None:
         tm = TaskManager(run_tasks=False)
         t = Task.from_json(data)
-        temp_workspace = tempfile.mkdtemp()
+        temp_workspace = t.get_workspace_path()
+        os.makedirs(temp_workspace, exist_ok=True)
         # Download model
         response = requests.get(t.model_url)
         model_path = os.path.join(temp_workspace, "model.keras")
@@ -314,9 +319,12 @@ class TaskManager:
             optimized_model = result
         else:
             # Quick test
-            optimized_model = tf.lite.TFLiteConverter.from_keras_model(original_model)
-            optimized_model.optimizations = [tf.lite.Optimize.DEFAULT]
-            optimized_model = optimized_model.convert()
+            opt_param = OptimizationParam()
+            opt_param.toggle_pruning(False)
+            opt_param.toggle_clustering(False)
+            opt_param.toggle_quantization(True)
+            optimizer = Optimizer(model_path, dm, opt_param, t.model_problem)
+            optimized_model = optimizer.optimize()
 
         bc = Benchmarker(edge_devices=t.devices)
         try:
@@ -341,4 +349,3 @@ class TaskManager:
         bc.clearAllModels()
         tm.close()
         del dm
-        shutil.rmtree(temp_workspace)

@@ -1,6 +1,7 @@
 import datetime
 import os.path
 import pickle
+import tempfile
 from enum import IntEnum
 from typing import List
 
@@ -113,3 +114,7 @@ class Task(Base):
         t.model_problem = data["model_problem"]
 
         return t
+
+    def get_workspace_path(self) -> str:
+        temp_dir = tempfile.gettempdir()
+        return os.path.join(temp_dir, f"optimizer-main-task_{self.id}")
