@@ -12,7 +12,6 @@ import requests
 import tensorflow as tf
 from sqlalchemy import create_engine, desc, asc
 from sqlalchemy.orm import sessionmaker
-from tf_optimizer_core.benchmarker_core import BenchmarkerCore
 
 from tf_optimizer import Base
 from tf_optimizer.benchmarker.benchmarker import Benchmarker
@@ -110,6 +109,8 @@ class TaskManager:
                 BenchmarkResult.edge_id.in_(device_ids)
             ).delete()
         self.db.commit()
+        if os.path.exists(task.generate_filename()):
+            os.remove(task.generate_filename())
         return removed_rows
 
     def get_task_by_id(self, id: int) -> Union[Task, None]:
@@ -156,6 +157,8 @@ class TaskManager:
             .delete()
         )
         self.db.commit()
+        if os.path.exists(task.generate_filename()):
+            os.remove(task.generate_filename())
         return res
 
     def update_task_pid(self, id_task: int, pid: int):
@@ -322,6 +325,12 @@ class TaskManager:
             exit(ProcessErrorCode.ConnectionRefused)
         bc.add_model(original_model, "original")
         bc.add_tf_lite_model(optimized_model, "optimized")
+
+        file_filename = t.generate_filename()
+        directory = os.path.dirname(file_filename)
+        os.makedirs(directory, exist_ok=True)
+        with open(file_filename, 'wb') as f:
+            f.write(optimized_model)
 
         results = asyncio.run(bc.benchmark())
         for device in t.devices:
