@@ -8,9 +8,9 @@ src/tests/__pycache__
 model.tflite
 .idea
 .pytest_cache
-poetry.lock
 logs
 src/__pycache__
 .vscode
 /sql_app.db
 /optimized_models/
+/poetry.lock

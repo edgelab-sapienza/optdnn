@@ -2,7 +2,6 @@ import asyncio
 import multiprocessing
 import os
 import shutil
-import tempfile
 from threading import Thread
 from typing import Union
 from zipfile import ZipFile
@@ -17,6 +16,8 @@ from tf_optimizer import Base
 from tf_optimizer.benchmarker.benchmarker import Benchmarker
 from tf_optimizer.benchmarker.model_info import ModelInfo
 from tf_optimizer.dataset_manager import DatasetManager
+from tf_optimizer.optimizer.optimization_param import OptimizationParam
+from tf_optimizer.optimizer.optimizer import Optimizer
 from tf_optimizer.optimizer.tuner import Tuner
 from tf_optimizer.task_manager.benchmark_result import BenchmarkResult
 from tf_optimizer.task_manager.edge_device import EdgeDevice
@@ -109,6 +110,8 @@ class TaskManager:
                 BenchmarkResult.edge_id.in_(device_ids)
             ).delete()
         self.db.commit()
+        if os.path.exists(task.generate_filename()):
+            os.remove(task.generate_filename())
         return removed_rows
 
     def get_task_by_id(self, id: int) -> Union[Task, None]:
@@ -146,6 +149,8 @@ class TaskManager:
 
     def remove_results(self, id_task: int):
         task = self.get_task_by_id(id_task)
+        if task is None:
+            return
         device_ids = list(map(lambda x: x.id, task.devices))
         res = (
             self.db.query(BenchmarkResult)
@@ -153,6 +158,8 @@ class TaskManager:
             .delete()
         )
         self.db.commit()
+        if os.path.exists(task.generate_filename()):
+            os.remove(task.generate_filename())
         return res
 
     def update_task_pid(self, id_task: int, pid: int):
@@ -244,10 +251,16 @@ class TaskManager:
             if p.exitcode == ProcessErrorCode.InputShapeNotDetectable:
                 msg = "Cannot detect model input size, provides it manually using the parameter image_size"
                 tm.report_error(task.id, msg)
-            if p.exitcode == ProcessErrorCode.WrongQuantizationType:
+            elif p.exitcode == ProcessErrorCode.WrongQuantizationType:
                 msg = "Quantization type not supported, check config.ini file"
                 tm.report_error(task.id, msg)
+            elif p.exitcode == ProcessErrorCode.ConnectionRefused:
+                msg = "Connection refused by the node"
+                tm.report_error(task.id, msg)
             tm.update_task_state(task.id, TaskStatus.FAILED)
+        task_workspace = task.get_workspace_path()
+        if os.path.exists(task_workspace) and os.path.isdir(task_workspace):
+            shutil.rmtree(task_workspace)
         tm.check_task_to_process()
         tm.close()
 
@@ -256,7 +269,8 @@ class TaskManager:
     def process_task(data: bytes) -> None:
         tm = TaskManager(run_tasks=False)
         t = Task.from_json(data)
-        temp_workspace = tempfile.mkdtemp()
+        temp_workspace = t.get_workspace_path()
+        os.makedirs(temp_workspace, exist_ok=True)
         # Download model
         response = requests.get(t.model_url)
         model_path = os.path.join(temp_workspace, "model.keras")
@@ -292,25 +306,39 @@ class TaskManager:
 
         img_shape = (detected_input_size[1], detected_input_size[2])
         dm = DatasetManager(dataset_folder, img_size=img_shape, scale=t.dataset_scale)
-
-        tuner = Tuner(
-            original_model,
-            dm,
-            batchsize=t.batch_size,
-            optimized_model_path=t.generate_filename(),
-        )
-        result = asyncio.run(tuner.tune())
-        optimized_model = result
+        test = False
+        if not test:
+            tuner = Tuner(
+                original_model,
+                dm,
+                model_problem=t.model_problem,
+                batchsize=t.batch_size,
+                optimized_model_path=t.generate_filename(),
+            )
+            result = asyncio.run(tuner.tune())
+            optimized_model = result
+        else:
+            # Quick test
+            opt_param = OptimizationParam()
+            opt_param.toggle_pruning(False)
+            opt_param.toggle_clustering(False)
+            opt_param.toggle_quantization(True)
+            optimizer = Optimizer(model_path, dm, opt_param, t.model_problem)
+            optimized_model = optimizer.optimize()
 
         bc = Benchmarker(edge_devices=t.devices)
-        asyncio.run(bc.set_dataset(dm))
+        try:
+            asyncio.run(bc.set_dataset(dm))
+        except ConnectionRefusedError:
+            exit(ProcessErrorCode.ConnectionRefused)
         bc.add_model(original_model, "original")
-
-        # Quick test
-        # optimized_model = tf.lite.TFLiteConverter.from_keras_model(original_model)
-        # optimized_model.optimizations = [tf.lite.Optimize.DEFAULT]
-        # optimized_model = optimized_model.convert()
         bc.add_tf_lite_model(optimized_model, "optimized")
+
+        file_filename = t.generate_filename()
+        directory = os.path.dirname(file_filename)
+        os.makedirs(directory, exist_ok=True)
+        with open(file_filename, 'wb') as f:
+            f.write(optimized_model)
 
         results = asyncio.run(bc.benchmark())
         for device in t.devices:
@@ -321,4 +349,3 @@ class TaskManager:
         bc.clearAllModels()
         tm.close()
         del dm
-        shutil.rmtree(temp_workspace)

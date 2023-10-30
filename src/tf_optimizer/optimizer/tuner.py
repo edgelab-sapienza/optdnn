@@ -18,7 +18,7 @@ from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.optimizer.optimization_param import (
     OptimizationParam,
     QuantizationLayerToPrune,
-    QuantizationTechnique,
+    QuantizationTechnique, ModelProblemInt,
 )
 from tf_optimizer.optimizer.optimizer import Optimizer
 from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
@@ -50,6 +50,7 @@ class Tuner:
             self,
             original_model: tf.keras.Sequential,
             dataset: DatasetManager,
+            model_problem: ModelProblemInt,
             batchsize=32,
             optimized_model_path=None,
             priority: OptimizationPriorityInt = OptimizationPriorityInt.SPEED
@@ -68,6 +69,7 @@ class Tuner:
         self.no_cluster_prs = []
         self.max_cluster_fails = 0
         self.isSpeedPrioritized = priority is OptimizationPriorityInt.SPEED
+        self.model_problem = model_problem
         now = datetime.now()
         date_time = now.strftime("%m-%d-%Y-%H:%M:%S")
         os.makedirs("logs", exist_ok=True)
@@ -111,6 +113,7 @@ class Tuner:
             lr: float,
             from_logits: bool,
             q: multiprocessing.Queue,
+            model_problem: ModelProblemInt
     ):
         print("Measuring keras model accuracy")
         print(f"model path:{model_path}")
@@ -120,8 +123,13 @@ class Tuner:
         dm = DatasetManager.fromJSON(dataset_manager)
 
         optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
-        loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=from_logits)
-        model.compile(optimizer=optimizer, loss=loss, metrics=["accuracy"])
+        if model_problem == ModelProblemInt.CATEGORICAL_CLASSIFICATION:
+            loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=from_logits)
+            model.compile(optimizer=optimizer, loss=loss, metrics=["accuracy"])
+        else:
+            loss = tf.keras.losses.BinaryCrossentropy(from_logits=from_logits)
+            model.compile(optimizer=optimizer, loss=loss, metrics=["binary_accuracy"])
+
         speedCallback = SpeedMeausureCallback()
         metrics = model.evaluate(
             dm.generate_batched_dataset(batch_size)[1], callbacks=[speedCallback]
@@ -135,7 +143,7 @@ class Tuner:
         if isinstance(model, bytes):
             print("Measuring tflite model accuracy")
             bc = BenchmarkerCore(
-                self.dataset_manager.get_validation_folder(), self.dataset_manager.scale
+                self.dataset_manager.get_validation_folder(), self.dataset_manager.scale, use_multicore=True
             )
             result = await bc.test_model(
                 model, callback=Benchmarker.OfflineProgressBar()
@@ -164,6 +172,7 @@ class Tuner:
                     lr,
                     from_logits,
                     q,
+                    self.model_problem
                 ),
             )
             p.start()
@@ -228,6 +237,7 @@ class Tuner:
             tf.keras.backend.clear_session()
             optimizer = Optimizer(
                 model_path,
+                model_problem=self.model_problem,
                 optimization_param=self.optimization_param,
                 batch_size=self.batch_size,
                 dataset_manager=self.dataset_manager,
@@ -278,6 +288,7 @@ class Tuner:
 
         model_performance = await self.test_model(original_model_path)
         targetAccuracy = model_performance.accuracy
+        logging.info(f"Target accuracy: {targetAccuracy}")
 
         self.optimization_param.toggle_clustering(True)
         cached_result = {}
@@ -317,9 +328,8 @@ class Tuner:
                 result_right = result.time if self.isSpeedPrioritized else result.size
                 cached_result[right_third] = result_right
 
-            logging.info(
-                f"RESULT C:{result_left}|{left_third} - RESULT D:{result_right}|{right_third}"
-            )
+                logging.info(f"NUMBER OF CLUSTERS :{right_third}\tSIZE: {result.size}\tSPEED: {result.time}")
+
             if result_left > result_right:
                 left = left_third
             else:

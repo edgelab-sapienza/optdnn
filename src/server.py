@@ -1,12 +1,12 @@
-import json
 import multiprocessing
 
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, FileResponse
 
-from tf_optimizer.task_manager.optimization_config import OptimizationConfig, OptimizationPriority
+from tf_optimizer.optimizer.optimization_param import ModelProblemInt
+from tf_optimizer.task_manager.optimization_config import OptimizationConfig, OptimizationPriority, ModelProblem
 from tf_optimizer.task_manager.task import Task, TaskStatus, OptimizationPriorityInt
 from tf_optimizer.task_manager.task_manager import TaskManager
 
@@ -41,7 +41,7 @@ tags_metadata = [
     },
 ]
 
-multiprocessing.set_start_method("spawn")
+#multiprocessing.set_start_method("spawn")
 tm = TaskManager(run_tasks=True)
 app = FastAPI(title="TF Optimizer", openapi_tags=tags_metadata)
 
@@ -88,6 +88,13 @@ def add_task(optimization_config: OptimizationConfig, request: Request):
         t.optimization_priority = OptimizationPriorityInt.SPEED
     else:
         t.optimization_priority = OptimizationPriorityInt.SIZE
+
+    print(optimization_config.model_problem)
+    if optimization_config.model_problem is ModelProblem.CATEGORICAL_CLASSIFICATION:
+        t.model_problem = ModelProblemInt.CATEGORICAL_CLASSIFICATION
+    else:
+        t.model_problem = ModelProblemInt.BINARY_CLASSIFICATION
+
     remote_nodes = []
     if optimization_config.remote_nodes is not None:
         nodes = optimization_config.remote_nodes
@@ -309,4 +316,9 @@ def stop_task(task_id: int):
 
 def start():
     """Launched with `poetry run start` at root level"""
+    multiprocessing.set_start_method("spawn")
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)
+
+
+if __name__ == "__main__":
+    start()

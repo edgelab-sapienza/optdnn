@@ -3,19 +3,18 @@ import tensorflow as tf
 import tempfile
 import shutil
 import pickle
-from random import randint
 
 
 class DatasetManager:
     VALIDATION_SPLIT = 1 / 3
 
     def __init__(
-        self,
-        dataset_path,
-        img_size,
-        scale=[0, 1],
-        random_seed: int = None,
-        images_to_take=-1,
+            self,
+            dataset_path,
+            img_size,
+            scale: tuple[float, float] = (0.0, 1.0),
+            random_seed: int = None,
+            images_to_take=-1,
     ) -> None:
         self.dataset_path = dataset_path
         self.scale = scale
@@ -23,7 +22,7 @@ class DatasetManager:
         self.__files_dataset__ = None
         self.__validation_folder__ = None
         if random_seed is None:
-            self.__random_seed__ = randint(1, 1000)
+            self.__random_seed__ = 1234
         else:
             self.__random_seed__ = random_seed
         self.__images_to_take__ = images_to_take
@@ -115,10 +114,10 @@ class DatasetManager:
         if isinstance(__value, DatasetManager):
             dm: DatasetManager = __value
             return (
-                self.dataset_path == dm.dataset_path
-                and self.img_size == dm.img_size
-                and self.scale == dm.scale
-                and self.__random_seed__ == dm.__random_seed__
+                    self.dataset_path == dm.dataset_path
+                    and self.img_size == dm.img_size
+                    and self.scale == dm.scale
+                    and self.__random_seed__ == dm.__random_seed__
             )
         else:
             return False

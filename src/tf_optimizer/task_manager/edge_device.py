@@ -8,9 +8,12 @@ from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import Mapped, relationship
 from tf_optimizer_core.benchmarker_core import Result
 from tf_optimizer_core.protocol import Protocol, PayloadMeans
-from tf_optimizer.task_manager.benchmark_result import BenchmarkResult
+
 from tf_optimizer import Base
+from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.network.file_server import FileServer
+from tf_optimizer.task_manager.benchmark_result import BenchmarkResult
+from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
 
 
 class EdgeDevice(Base):
@@ -44,11 +47,13 @@ class EdgeDevice(Base):
             print(f"IM {self.identifier()}, MODEL :{self.inference_time}")
 
     async def send_model(self, model_path: str, model_name: str) -> Union[Result, None]:
+
         uri = "ws://{}:{}".format(self.ip_address, self.port)
+        print(f"SENDING {model_path}")
         async with websockets.connect(uri, ping_interval=None) as websocket:
             fs = FileServer(model_path, local_address=self.local_address)
             url = fs.get_file_url()
-            text_message = url + Protocol.string_delimiter + model_name
+            text_message = url + Protocol.string_delimiter + model_name + Protocol.string_delimiter + str(self.id)
             msg = Protocol.build_put_model_file_request(text_message)
             await websocket.send(msg.to_bytes())
             print(f"Uploading: {model_name}")
@@ -59,7 +64,7 @@ class EdgeDevice(Base):
 
                 if p_msg.cmd == PayloadMeans.Result:
                     print()
-                    return Protocol.get_evaulation_by_msg(p_msg)
+                    return Protocol.get_result_by_msg(p_msg)
                 elif p_msg.cmd == PayloadMeans.ProgressUpdate:
                     payload = p_msg.payload.decode("utf-8")
                     print(f"\r{payload}", end="")
@@ -67,13 +72,18 @@ class EdgeDevice(Base):
                 else:
                     return None
 
-    async def send_dataset(self, dataset: str):
+    async def send_dataset(self, dataset_manager: DatasetManager):
         base_name = "my_dataset"
+        dataset = dataset_manager.get_validation_folder()
         filename = shutil.make_archive(base_name, "zip", dataset)
 
         uri = "ws://{}:{}".format(self.ip_address, self.port)
         fs = FileServer(filename, local_address=self.local_address)
         async with websockets.connect(uri) as websocket:
+            content = f"{dataset_manager.scale[0]}{Protocol.string_delimiter}{dataset_manager.scale[1]}"
+            msg = Protocol(PayloadMeans.DatasetScale, content.encode())
+            await websocket.send(msg.to_bytes())
+
             url = fs.get_file_url().encode("utf-8")
             msg = Protocol.build_put_dataset_file_request(url)
             print(f"DS URL {msg}")
@@ -81,6 +91,7 @@ class EdgeDevice(Base):
             print("Uploading dataset")
             fs.serve()  # Blocking
             msg = await websocket.recv()
+
 
         if os.path.exists(filename):
             os.remove(filename)

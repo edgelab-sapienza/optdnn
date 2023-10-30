@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import os.path
 import sys
 from enum import Enum, auto
@@ -107,6 +108,13 @@ class Benchmarker:
                 else:
                     task = edge_device.send_model(file_path, model.name)
 
+                result = await task
+                new_model = copy.deepcopy(model)
+                new_model.time = result.time
+                new_model.accuracy = result.accuracy
+                results[str(result.node_id)].append(new_model)
+
+            """
                 asyncio_task = asyncio.create_task(task)
                 created_task.append((asyncio_task, edge_device.id))
 
@@ -118,7 +126,8 @@ class Benchmarker:
                 model.accuracy = result.accuracy
 
                 results[str(device_id)].append(model)
-
+                print(f"{device_id} in {result.accuracy}")
+            """
         return results
 
     def summary(
@@ -218,7 +227,7 @@ class Benchmarker:
                 print(
                     f"SENDING DS {dataset_path} at {edge_device.ip_address}:{edge_device.port}"
                 )
-                task = asyncio.create_task(edge_device.send_dataset(dataset_path))
+                task = asyncio.create_task(edge_device.send_dataset(dataset))
                 created_tasks.append(task)
 
         for task in created_tasks:

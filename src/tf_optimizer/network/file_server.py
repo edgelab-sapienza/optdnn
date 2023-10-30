@@ -1,11 +1,8 @@
 import hashlib
 import os
 import pathlib
-from http.server import BaseHTTPRequestHandler, HTTPServer
-
-import netifaces as ni
-import psutil
 import socket
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from tf_optimizer.benchmarker.utils import get_gzipped_file
 
