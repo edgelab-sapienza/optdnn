@@ -328,9 +328,8 @@ class Tuner:
                 result_right = result.time if self.isSpeedPrioritized else result.size
                 cached_result[right_third] = result_right
 
-            logging.info(
-                f"RESULT C:{result_left}|{left_third} - RESULT D:{result_right}|{right_third}"
-            )
+                logging.info(f"NUMBER OF CLUSTERS :{right_third}\tSIZE: {result.size}\tSPEED: {result.time}")
+
             if result_left > result_right:
                 left = left_third
             else:
