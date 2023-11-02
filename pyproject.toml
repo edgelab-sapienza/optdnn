@@ -27,7 +27,7 @@ fastapi = "^0.103.2"
 uvicorn = "^0.23.2"
 sqlalchemy = "^2.0.21"
 tensorflow = { extras = ["and-cuda"], version = "^2.14.0" }
-tf-optimizer-core = {path = "../optimizer-edge", develop = true}
+tf-optimizer-core = {path = "./optimizer-edge", develop = true}
 
 [build-system]
 requires = ["poetry-core"]

@@ -38,11 +38,13 @@ This service provides API endpoints that can be used to optimize models.
        - Integer representing the batch size, default is 32
        -  `32`
     -  **priority**
-      - String that can contains "size" or "speed"
-      - `"speed"` means that the optimization prioritize model speed
-      - `"size"` means that the optimization prioritize model size
-
-  
+       - String that can contains "size" or "speed"
+       - `"speed"` means that the optimization prioritize model speed
+       - `"size"` means that the optimization prioritize model size
+    -  **Model problem**
+       - String that can contains:
+       - `"binary_classification"` if the problem is binary classification
+       - `"categorical_classification"` if the problem is categorical classification
 
 (*) required fields
 

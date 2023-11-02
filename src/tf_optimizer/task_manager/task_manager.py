@@ -282,7 +282,7 @@ class TaskManager:
         open(dataset_zip, "wb").write(response.content)
         # unzip dataset
         dataset_folder = os.path.join(temp_workspace, "dataset")
-        os.makedirs(dataset_folder)
+        os.makedirs(dataset_folder, exist_ok=True)
         with ZipFile(dataset_zip, "r") as zObject:
             zObject.extractall(path=dataset_folder)
 

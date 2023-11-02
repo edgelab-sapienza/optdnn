@@ -1,0 +1,3 @@
+[submodule "optimizer-edge"]
+	path = optimizer-edge
+	url = https://gitlab.com/edgeseamless/optimizer-edge.git
