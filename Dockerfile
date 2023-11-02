@@ -8,8 +8,8 @@ RUN apt update && \
     apt install -y software-properties-common && \
     add-apt-repository -y ppa:deadsnakes/ppa && \
     apt update && \
-    apt install -y python3.9 python3-pip python3-venv python3-dev python3.9-distutils
-
+    apt install -y python3.9 python3-pip python3-venv python3-dev python3.9-distutils nvidia-cuda-toolkit
+docker
 
 RUN pip install poetry
 
