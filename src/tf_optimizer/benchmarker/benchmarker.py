@@ -104,11 +104,11 @@ class Benchmarker:
                 # Start local computing
                 if edge_device.is_local_node():
                     progressBar = Benchmarker.OfflineProgressBar()
-                    task = self.core.test_model(file_path, model.name, progressBar)
+                    result = await self.core.test_model(file_path, model.name, progressBar)
+                    result.node_id = edge_device.id
                 else:
-                    task = edge_device.send_model(file_path, model.name)
+                    result = await edge_device.send_model(file_path, model.name)
 
-                result = await task
                 new_model = copy.deepcopy(model)
                 new_model.time = result.time
                 new_model.accuracy = result.accuracy
