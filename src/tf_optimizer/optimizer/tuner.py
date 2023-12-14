@@ -72,11 +72,13 @@ class Tuner:
         self.model_problem = model_problem
         now = datetime.now()
         date_time = now.strftime("%m-%d-%Y-%H:%M:%S")
-        os.makedirs("logs", exist_ok=True)
+        LOGS_DIR = "logs"
+        os.makedirs(LOGS_DIR, exist_ok=True)
         logging.basicConfig(
-            filename="logs/tuner{}.log".format(date_time),
+            filename=os.path.join(LOGS_DIR, f"tuner{date_time}.log"),
             encoding="utf-8",
             level=logging.INFO,
+            force=True
         )
         logging.info(f"DS:{self.dataset_manager.get_path()}")
         logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
@@ -258,13 +260,17 @@ class Tuner:
             if counter_back_direction > self.configuation.getConfig(
                     "CLUSTERING", "number_of_backstep_to_exit"
             ):
-                # Accuracy is too high, clusterization disabled
-                logging.info("Accuracy is too high, clusterization disabled")
-                self.max_cluster_fails = self.optimization_param.get_number_of_cluster()
-                self.optimization_param.toggle_clustering(False)
-                return await self.getOptimizedModel(
-                    model_path, targetAccuracy, percentagePrecision
-                )
+                if self.optimization_param.isClusteringEnabled():
+                    # Accuracy is too high, clusterization disabled
+                    logging.info("Accuracy is too high, clusterization disabled")
+                    self.max_cluster_fails = self.optimization_param.get_number_of_cluster()
+                    self.optimization_param.toggle_clustering(False)
+                else:
+                    logging.info("Accuracy is too high, pruning disabled")
+                    self.optimization_param.toggle_pruning(False)
+                    return await self.getOptimizedModel(
+                        model_path, targetAccuracy, percentagePrecision
+                    )
             iterations += 1
         logging.info(
             f"Found model with acc:{reachedAccuracy} in {iterations} iterations"
