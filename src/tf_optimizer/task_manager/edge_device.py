@@ -6,14 +6,13 @@ from typing import List, Union
 import websockets
 from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import Mapped, relationship
-from tf_optimizer_core.benchmarker_core import Result
-from tf_optimizer_core.protocol import Protocol, PayloadMeans
 
 from tf_optimizer import Base
 from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.network.file_server import FileServer
 from tf_optimizer.task_manager.benchmark_result import BenchmarkResult
-from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
+from tf_optimizer_core.benchmarker_core import Result
+from tf_optimizer_core.protocol import Protocol, PayloadMeans
 
 
 class EdgeDevice(Base):
@@ -80,10 +79,22 @@ class EdgeDevice(Base):
         uri = "ws://{}:{}".format(self.ip_address, self.port)
         fs = FileServer(filename, local_address=self.local_address)
         async with websockets.connect(uri) as websocket:
-            content = f"{dataset_manager.scale[0]}{Protocol.string_delimiter}{dataset_manager.scale[1]}"
-            msg = Protocol(PayloadMeans.DatasetScale, content.encode())
+            # Send scale
+            if dataset_manager.scale is not None and len(dataset_manager.scale)>0:
+                content = f"{dataset_manager.scale[0]}{Protocol.string_delimiter}{dataset_manager.scale[1]}"
+                msg = Protocol(PayloadMeans.DatasetScale, content.encode())
+                await websocket.send(msg.to_bytes())
+
+            # Send format
+            if dataset_manager.data_format is None:
+                content = ""
+            else:
+                content = f"{dataset_manager.data_format}"
+            print(f"SENDING {content}")
+            msg = Protocol(PayloadMeans.DataFormat, content.encode())
             await websocket.send(msg.to_bytes())
 
+            # Send URL
             url = fs.get_file_url().encode("utf-8")
             msg = Protocol.build_put_dataset_file_request(url)
             print(f"DS URL {msg}")
@@ -91,7 +102,6 @@ class EdgeDevice(Base):
             print("Uploading dataset")
             fs.serve()  # Blocking
             msg = await websocket.recv()
-
 
         if os.path.exists(filename):
             os.remove(filename)

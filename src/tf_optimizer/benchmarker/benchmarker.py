@@ -222,6 +222,7 @@ class Benchmarker:
                     dataset_path,
                     interval=dataset.scale,
                     use_multicore=self.use_multicore,
+                    data_format=dataset.data_format
                 )
             else:
                 print(

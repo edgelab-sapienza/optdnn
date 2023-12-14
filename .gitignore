@@ -14,3 +14,4 @@ src/__pycache__
 /sql_app.db
 /optimized_models/
 /poetry.lock
+/optimizer-edge/*

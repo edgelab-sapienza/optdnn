@@ -42,6 +42,7 @@ class Task(Base):
     error_msg = Column(String, nullable=True, default=None)
     optimization_priority = Column(Integer, default=OptimizationPriorityInt.SPEED.value)
     model_problem = Column(Integer)
+    data_format = Column(String, nullable=True, default=None)
     devices: Mapped[List["EdgeDevice"]] = relationship(back_populates="task", lazy="joined")
 
     def generate_filename(self) -> str:
@@ -54,6 +55,7 @@ class Task(Base):
                 f"ID: {self.id}, status: {self.status}, created_at: {self.created_at}, dataset_scale: {self.dataset_scale}, "
                 + f"model_url: {self.model_url}, dataset_url: {self.dataset_url}, img_size: {self.img_size}, "
                 + f"callback_url: {self.callback_url}, batch_size: {self.batch_size}, priority: {self.optimization_priority}"
+                + f"data_format: {self.data_format}"
         )
 
     def __eq__(self, __value: object) -> bool:
@@ -92,6 +94,7 @@ class Task(Base):
         d["devices"] = self.devices
         d["priority"] = self.optimization_priority
         d["model_problem"] = self.model_problem
+        d["data_format"] = self.data_format
         return pickle.dumps(d)
 
     @staticmethod
@@ -112,6 +115,7 @@ class Task(Base):
         t.devices = data["devices"]
         t.optimization_priority = data["priority"]
         t.model_problem = data["model_problem"]
+        t.data_format = data["data_format"]
 
         return t
 

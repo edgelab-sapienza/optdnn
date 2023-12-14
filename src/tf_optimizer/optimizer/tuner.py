@@ -9,7 +9,6 @@ from statistics import mean
 from time import time
 
 import tensorflow as tf
-from tf_optimizer_core.benchmarker_core import BenchmarkerCore, Result
 
 from tf_optimizer.benchmarker.benchmarker import Benchmarker
 from tf_optimizer.benchmarker.utils import get_tflite_model_size
@@ -23,6 +22,7 @@ from tf_optimizer.optimizer.optimization_param import (
 from tf_optimizer.optimizer.optimizer import Optimizer
 from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
 from tf_optimizer.task_manager.task import OptimizationPriorityInt
+from tf_optimizer_core.benchmarker_core import BenchmarkerCore, Result
 
 
 class SpeedMeausureCallback(tf.keras.callbacks.Callback):
@@ -143,7 +143,8 @@ class Tuner:
         if isinstance(model, bytes):
             print("Measuring tflite model accuracy")
             bc = BenchmarkerCore(
-                self.dataset_manager.get_validation_folder(), self.dataset_manager.scale, use_multicore=True
+                self.dataset_manager.get_validation_folder(), self.dataset_manager.scale, use_multicore=True,
+                data_format=self.dataset_manager.data_format
             )
             result = await bc.test_model(
                 model, callback=Benchmarker.OfflineProgressBar()

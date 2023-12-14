@@ -1,8 +1,9 @@
 import os
-import tensorflow as tf
-import tempfile
-import shutil
 import pickle
+import shutil
+import tempfile
+
+import tensorflow as tf
 
 
 class DatasetManager:
@@ -12,13 +13,15 @@ class DatasetManager:
             self,
             dataset_path,
             img_size,
-            scale: tuple[float, float] = (0.0, 1.0),
+            scale: tuple[float, float] = None,
             random_seed: int = None,
             images_to_take=-1,
+            data_format: str = None
     ) -> None:
         self.dataset_path = dataset_path
         self.scale = scale
         self.img_size = img_size
+        self.data_format = data_format
         self.__files_dataset__ = None
         self.__validation_folder__ = None
         if random_seed is None:
@@ -28,9 +31,6 @@ class DatasetManager:
         self.__images_to_take__ = images_to_take
 
     def generate_batched_dataset(self, batch_size=32):
-        interval_min = self.scale[0]
-        interval_max = self.scale[1]
-        interval_range = interval_max - interval_min
 
         def gen_element(filename):
             file = tf.io.read_file(filename)
@@ -39,7 +39,13 @@ class DatasetManager:
             else:
                 image = tf.image.decode_png(file)
             image = tf.image.resize(image, self.img_size)
-            image = interval_min + (interval_range * tf.cast(image, tf.float32) / 255.0)
+            if self.data_format is None or self.data_format == "None":
+                interval_min = self.scale[0]
+                interval_max = self.scale[1]
+                interval_range = interval_max - interval_min
+                image = interval_min + (interval_range * tf.cast(image, tf.float32) / 255.0)
+            else:
+                image = tf.keras.applications.imagenet_utils.preprocess_input(image, mode=self.data_format)
             return image
 
         def gen_label(filename):
@@ -108,6 +114,7 @@ class DatasetManager:
         d["scale"] = self.scale
         d["seed"] = self.__random_seed__
         d["images_to_take"] = self.__images_to_take__
+        d["data_format"] = self.data_format
         return pickle.dumps(d)
 
     def __eq__(self, __value: object) -> bool:
@@ -118,6 +125,7 @@ class DatasetManager:
                     and self.img_size == dm.img_size
                     and self.scale == dm.scale
                     and self.__random_seed__ == dm.__random_seed__
+                    and self.data_format == dm.data_format
             )
         else:
             return False
@@ -131,4 +139,5 @@ class DatasetManager:
             data["scale"],
             random_seed=data["seed"],
             images_to_take=data["images_to_take"],
+            data_format=data["data_format"]
         )

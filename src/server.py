@@ -41,7 +41,7 @@ tags_metadata = [
     },
 ]
 
-#multiprocessing.set_start_method("spawn")
+# multiprocessing.set_start_method("spawn")
 tm = TaskManager(run_tasks=True)
 app = FastAPI(title="TF Optimizer", openapi_tags=tags_metadata)
 
@@ -94,6 +94,8 @@ def add_task(optimization_config: OptimizationConfig, request: Request):
         t.model_problem = ModelProblemInt.CATEGORICAL_CLASSIFICATION
     else:
         t.model_problem = ModelProblemInt.BINARY_CLASSIFICATION
+
+    t.data_format = optimization_config.data_format
 
     remote_nodes = []
     if optimization_config.remote_nodes is not None:

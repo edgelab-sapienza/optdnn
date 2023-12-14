@@ -12,6 +12,12 @@ class OptimizationPriority(str, Enum):
     SIZE = "size"
 
 
+class DataFormat(str, Enum):
+    tf = "tf"
+    caffe = "caffe"
+    torch = "torch"
+
+
 class ModelProblem(str, Enum):
     CATEGORICAL_CLASSIFICATION = "categorical_classification"
     BINARY_CLASSIFICATION = "binary_classification"
@@ -23,7 +29,7 @@ class OptimizationConfig(BaseModel):
                                                    description="URL used to download the .keras model")
     dataset_url: Union[HttpUrl, IPv4Address] = Query(example="http://datasethost.com/myhost.zip",
                                                      description="URL used to download the .zip file of the dataset")
-    dataset_scale: Tuple[float, float] = Field(example=[-1, 1], description="Dataset desired scale")
+    dataset_scale: Tuple[float, float] = Field(example=[-1, 1], description="Dataset desired scale", default=None)
     img_size: Union[Tuple[int, int], None] = Field(example=[224, 224],
                                                    description="Model input image size (default autodetected)",
                                                    default=None)
@@ -41,10 +47,12 @@ class OptimizationConfig(BaseModel):
                                            default=OptimizationPriority.SPEED)
     model_problem: ModelProblem = Field(example=ModelProblem.CATEGORICAL_CLASSIFICATION,
                                         description="Type of model problem")
+    data_format: DataFormat = Field(example=DataFormat.tf, description="Type of data format", default=None)
 
     def __str__(self) -> str:
         return (
                 f"Model url: {self.model_url} \n"
                 + f"Dataset url {self.dataset_url} \n"
                 + f"Dataset scale {self.dataset_scale} \n"
+                + f"Data format {self.data_format} \n"
         )
