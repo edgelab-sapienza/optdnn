@@ -35,9 +35,9 @@ class DatasetManager:
         def gen_element(filename):
             file = tf.io.read_file(filename)
             if tf.image.is_jpeg(file):
-                image = tf.image.decode_jpeg(file)
+                image = tf.image.decode_jpeg(file, channels=3)
             else:
-                image = tf.image.decode_png(file)
+                image = tf.image.decode_png(file, channels=3)
             image = tf.image.resize(image, self.img_size)
             if self.data_format is None or self.data_format == "None":
                 interval_min = self.scale[0]
