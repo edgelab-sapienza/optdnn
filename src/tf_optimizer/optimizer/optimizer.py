@@ -7,6 +7,7 @@ from multiprocessing import Process, Pipe
 
 import tensorflow as tf
 
+from tf_optimizer.configuration import Configuration
 from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.optimizer.optimization_param import (
     OptimizationParam,
@@ -48,6 +49,8 @@ class Optimizer:
         self.early_breakup_accuracy = early_breakup_accuracy
         self.logger = logger
         self.model_problem = model_problem
+        self.configuration = Configuration()
+        self.delta_precision = self.configuration.getConfig("TUNER", "DELTA_PERCENTAGE")
 
     def __representative_dataset_gen__(self):
         for image_batch, labels_batch in (
@@ -83,7 +86,7 @@ class Optimizer:
             recevied_accuracy = receiver.recv()
             if (
                     self.early_breakup_accuracy is not None
-                    and recevied_accuracy < self.early_breakup_accuracy
+                    and recevied_accuracy + (self.delta_precision/100) < self.early_breakup_accuracy
             ):
                 self.logger.info(f"PR: STOPPED WITH ACCURACY OF {recevied_accuracy}")
                 p.kill()
@@ -113,7 +116,7 @@ class Optimizer:
             recevied_accuracy = receiver.recv()
             if (
                     self.early_breakup_accuracy is not None
-                    and recevied_accuracy < self.early_breakup_accuracy
+                    and recevied_accuracy + (self.delta_precision/100) < self.early_breakup_accuracy
             ):
                 self.logger.info(f"CL: STOPPED WITH ACCURACY OF {recevied_accuracy}")
                 p.kill()

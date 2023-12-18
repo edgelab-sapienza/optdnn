@@ -88,6 +88,7 @@ class Tuner:
             self.optimization_param.set_quantized_layers(
                 QuantizationLayerToPrune.AllLayers
             )
+            self.optimization_param.set_in_out_type(tf.uint8)
         else:
             self.optimization_param.set_quantized_layers(
                 QuantizationLayerToPrune.OnlyDeepLayer
@@ -201,7 +202,9 @@ class Tuner:
             logging.info(
                 f"SINCE REQUIRED NUMBER OF CLUSTER {self.optimization_param.get_number_of_cluster()} IS BELOW {self.max_cluster_fails}, CLUSTERIZATION IS DISABLED"
             )
-        while abs(reachedAccuracy - targetAccuracy) > percentagePrecision / 100:
+        watchdog = 0
+        while abs(reachedAccuracy - targetAccuracy) > percentagePrecision / 100 or not (watchdog > 5 and reachedAccuracy > targetAccuracy):
+            watchdog += 1
             # Computing pruning rate
             if (
                     iterations == 0
@@ -256,7 +259,8 @@ class Tuner:
                 model_result = await self.test_model(tflite_model)
                 reachedAccuracy = model_result.accuracy
                 logging.info(f"Measured accuracy {reachedAccuracy}")
-
+                if not self.optimization_param.isPruningEnabled():
+                    break
             if counter_back_direction > self.configuation.getConfig(
                     "CLUSTERING", "number_of_backstep_to_exit"
             ):
