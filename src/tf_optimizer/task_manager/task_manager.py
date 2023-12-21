@@ -305,7 +305,7 @@ class TaskManager:
             exit(ProcessErrorCode.InputShapeNotDetectable)
 
         img_shape = (detected_input_size[1], detected_input_size[2])
-        dm = DatasetManager(dataset_folder, img_size=img_shape, scale=t.dataset_scale)
+        dm = DatasetManager(dataset_folder, img_size=img_shape, scale=t.dataset_scale, data_format=t.data_format)
         test = False
         if not test:
             tuner = Tuner(

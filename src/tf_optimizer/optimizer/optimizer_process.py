@@ -79,7 +79,7 @@ class OptimizerProcess:
             lr = model.optimizer.learning_rate.numpy()
         except AttributeError:
             lr = 1e-5
-        optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
+        optimizer = tf.keras.optimizers.Adam(learning_rate=1e-5)
         try:
             from_logits = model.loss.get_config()["from_logits"]
         except AttributeError:
@@ -219,7 +219,7 @@ class OptimizerProcess:
             lr = model.optimizer.learning_rate.numpy()
         except AttributeError:
             lr = 1e-5
-        optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
+        optimizer = tf.keras.optimizers.Adam(learning_rate=1e-5)
         try:
             from_logits = model.loss.get_config()["from_logits"]
         except AttributeError:

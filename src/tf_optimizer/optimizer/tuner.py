@@ -9,7 +9,6 @@ from statistics import mean
 from time import time
 
 import tensorflow as tf
-from tf_optimizer_core.benchmarker_core import BenchmarkerCore, Result
 
 from tf_optimizer.benchmarker.benchmarker import Benchmarker
 from tf_optimizer.benchmarker.utils import get_tflite_model_size
@@ -23,6 +22,7 @@ from tf_optimizer.optimizer.optimization_param import (
 from tf_optimizer.optimizer.optimizer import Optimizer
 from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
 from tf_optimizer.task_manager.task import OptimizationPriorityInt
+from tf_optimizer_core.benchmarker_core import BenchmarkerCore, Result
 
 
 class SpeedMeausureCallback(tf.keras.callbacks.Callback):
@@ -72,11 +72,13 @@ class Tuner:
         self.model_problem = model_problem
         now = datetime.now()
         date_time = now.strftime("%m-%d-%Y-%H:%M:%S")
-        os.makedirs("logs", exist_ok=True)
+        LOGS_DIR = "logs"
+        os.makedirs(LOGS_DIR, exist_ok=True)
         logging.basicConfig(
-            filename="logs/tuner{}.log".format(date_time),
+            filename=os.path.join(LOGS_DIR, f"tuner{date_time}.log"),
             encoding="utf-8",
             level=logging.INFO,
+            force=True
         )
         logging.info(f"DS:{self.dataset_manager.get_path()}")
         logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
@@ -86,6 +88,7 @@ class Tuner:
             self.optimization_param.set_quantized_layers(
                 QuantizationLayerToPrune.AllLayers
             )
+            self.optimization_param.set_in_out_type(tf.uint8)
         else:
             self.optimization_param.set_quantized_layers(
                 QuantizationLayerToPrune.OnlyDeepLayer
@@ -143,7 +146,8 @@ class Tuner:
         if isinstance(model, bytes):
             print("Measuring tflite model accuracy")
             bc = BenchmarkerCore(
-                self.dataset_manager.get_validation_folder(), self.dataset_manager.scale, use_multicore=True
+                self.dataset_manager.get_validation_folder(), self.dataset_manager.scale, use_multicore=True,
+                data_format=self.dataset_manager.data_format
             )
             result = await bc.test_model(
                 model, callback=Benchmarker.OfflineProgressBar()
@@ -198,7 +202,9 @@ class Tuner:
             logging.info(
                 f"SINCE REQUIRED NUMBER OF CLUSTER {self.optimization_param.get_number_of_cluster()} IS BELOW {self.max_cluster_fails}, CLUSTERIZATION IS DISABLED"
             )
-        while abs(reachedAccuracy - targetAccuracy) > percentagePrecision / 100:
+        watchdog = 0
+        while abs(reachedAccuracy - targetAccuracy) > percentagePrecision / 100 or not (watchdog > 5 and reachedAccuracy > targetAccuracy):
+            watchdog += 1
             # Computing pruning rate
             if (
                     iterations == 0
@@ -253,17 +259,22 @@ class Tuner:
                 model_result = await self.test_model(tflite_model)
                 reachedAccuracy = model_result.accuracy
                 logging.info(f"Measured accuracy {reachedAccuracy}")
-
+                if not self.optimization_param.isPruningEnabled():
+                    break
             if counter_back_direction > self.configuation.getConfig(
                     "CLUSTERING", "number_of_backstep_to_exit"
             ):
-                # Accuracy is too high, clusterization disabled
-                logging.info("Accuracy is too high, clusterization disabled")
-                self.max_cluster_fails = self.optimization_param.get_number_of_cluster()
-                self.optimization_param.toggle_clustering(False)
-                return await self.getOptimizedModel(
-                    model_path, targetAccuracy, percentagePrecision
-                )
+                if self.optimization_param.isClusteringEnabled():
+                    # Accuracy is too high, clusterization disabled
+                    logging.info("Accuracy is too high, clusterization disabled")
+                    self.max_cluster_fails = self.optimization_param.get_number_of_cluster()
+                    self.optimization_param.toggle_clustering(False)
+                else:
+                    logging.info("Accuracy is too high, pruning disabled")
+                    self.optimization_param.toggle_pruning(False)
+                    return await self.getOptimizedModel(
+                        model_path, targetAccuracy, percentagePrecision
+                    )
             iterations += 1
         logging.info(
             f"Found model with acc:{reachedAccuracy} in {iterations} iterations"
