@@ -1,19 +1,20 @@
 import argparse
 import asyncio
+import logging
 import multiprocessing
 import os
 import pathlib
 import sys
 import tempfile
-from datetime import datetime
-import logging
 
 import tensorflow as tf
 
+from tf_optimizer.benchmarker.benchmarker import Benchmarker
 from tf_optimizer.configuration import Configuration
 from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.optimizer.optimization_param import ModelProblemInt
 from tf_optimizer.optimizer.tuner import Tuner
+from tf_optimizer.task_manager.edge_device import EdgeDevice
 
 
 def setup_logger(logger_name, log_file, level=logging.INFO):
@@ -131,21 +132,36 @@ async def main():
     dm = DatasetManager(dataset_path, img_size=img_shape, scale=ds_scale)
     tuner = Tuner(original, dm, ModelProblemInt.CATEGORICAL_CLASSIFICATION, batch_size)
     setup_logger('log_one', "LOG_ONE.log")
+    logger(f"OPTIMIZING {os.path.basename(input_file)}", 'info', 'one')
     result = await tuner.test_model(input_file)
     print(f"MEASURED RESULTS {result}")
     original_acc = result.accuracy
     logger(f"ORIGINAL ACCURACY {original_acc}", 'info', 'one')
     model_path = tempfile.mktemp("*.keras")
     original.save(model_path)
-    for cluster in range(10, 80, 5):
+
+    device = EdgeDevice("192.168.0.113", 22051)
+    device.id = 0
+    bc = Benchmarker(edge_devices=[device])
+    for cluster in range(10, 105, 5):
         tuner.optimization_param.set_number_of_cluster(cluster)
+        tuner.optimization_param.toggle_clustering(False)
         optimized, result = await tuner.getOptimizedModel(model_path, original_acc)
+
         if result is None:
-            logger(f"Cluster {cluster} result is none",'info', 'one')
+            logger(f"Cluster {cluster} result is none", 'info', 'one')
         else:
             print(f"MEASURED {result.time} | {result.accuracy} WITH {cluster} clusters")
-            logger(f"CLUSTERS {cluster} -> SIZE {result.size} AND TIME {result.time}",'info', 'one')
+            logger(f"CLUSTERS {cluster} -> SIZE {result.size} AND TIME {result.time}", 'info', 'one')
+        bc.add_tf_lite_model(optimized, f"CLUSTER_{cluster}")
+
     os.remove(model_path)
+    await bc.set_dataset(dm)
+    results = await bc.benchmark()
+    logger(f"Result on edge device {device}", 'info', 'one')
+    logger("Name\tTime\tSize", 'info', 'one')
+    for result in results["0"]:
+        logger(f"{result.name}\t{result.time}\t{result.size}", 'info', 'one')
 
 
 if __name__ == "__main__":

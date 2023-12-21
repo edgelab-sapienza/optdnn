@@ -15,3 +15,4 @@ src/__pycache__
 /optimized_models/
 /poetry.lock
 /optimizer-edge/*
+*.log
