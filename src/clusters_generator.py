@@ -140,10 +140,12 @@ async def main():
     model_path = tempfile.mktemp("*.keras")
     original.save(model_path)
 
-    device = EdgeDevice("192.168.0.113", 22051)
+    # device = EdgeDevice("192.168.0.113", 22051)
+    device = EdgeDevice("192.168.0.68", 12300)
+
     device.id = 0
     bc = Benchmarker(edge_devices=[device])
-    for cluster in range(10, 105, 5):
+    for cluster in range(10, 51, 1):
         tuner.optimization_param.set_number_of_cluster(cluster)
         tuner.optimization_param.toggle_clustering(False)
         optimized, result = await tuner.getOptimizedModel(model_path, original_acc)
@@ -159,9 +161,16 @@ async def main():
     await bc.set_dataset(dm)
     results = await bc.benchmark()
     logger(f"Result on edge device {device}", 'info', 'one')
-    logger("Name\tTime\tSize", 'info', 'one')
+    logger("Time", 'info', 'one')
     for result in results["0"]:
-        logger(f"{result.name}\t{result.time}\t{result.size}", 'info', 'one')
+        clusters = result.name.split("_")[-1]
+        time = result.time
+        logger(f"({clusters},{time})", 'info', 'one')
+    logger("Sizes", 'info', 'one')
+    for result in results["0"]:
+        clusters = result.name.split("_")[-1]
+        size = result.size
+        logger(f"({clusters},{size})", 'info', 'one')
 
 
 if __name__ == "__main__":
