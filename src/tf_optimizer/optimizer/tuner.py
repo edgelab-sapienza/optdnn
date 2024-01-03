@@ -202,9 +202,7 @@ class Tuner:
             logging.info(
                 f"SINCE REQUIRED NUMBER OF CLUSTER {self.optimization_param.get_number_of_cluster()} IS BELOW {self.max_cluster_fails}, CLUSTERIZATION IS DISABLED"
             )
-        watchdog = 0
-        while abs(reachedAccuracy - targetAccuracy) > percentagePrecision / 100 or not (watchdog > 5 and reachedAccuracy > targetAccuracy):
-            watchdog += 1
+        while abs(reachedAccuracy - targetAccuracy) > percentagePrecision / 100:
             # Computing pruning rate
             if (
                     iterations == 0
