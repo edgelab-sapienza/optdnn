@@ -269,6 +269,7 @@ class Tuner:
                     logging.info("Accuracy is too high, clusterization disabled")
                     self.max_cluster_fails = self.optimization_param.get_number_of_cluster()
                     self.optimization_param.toggle_clustering(False)
+                    counter_back_direction = 0
                 else:
                     logging.info("Accuracy is too high, pruning disabled")
                     self.optimization_param.toggle_pruning(False)
