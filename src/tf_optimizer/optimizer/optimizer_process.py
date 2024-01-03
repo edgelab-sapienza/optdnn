@@ -90,7 +90,7 @@ class OptimizerProcess:
         else:
             loss = tf.keras.losses.BinaryCrossentropy(from_logits=from_logits)
             pruned_model.compile(optimizer=optimizer, loss=loss, metrics=["binary_accuracy"])
-        print("PUNING STARTED")
+        print(f"STARTING PRUNING WITH PR:{op.__pruningPlan__.targetSparsity}")
         pruned_model.fit(
             train_ds,
             validation_data=test_ds,

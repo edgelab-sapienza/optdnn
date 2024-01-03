@@ -2,7 +2,6 @@ import os
 import pathlib
 import shutil
 import tempfile
-from enum import IntEnum
 from multiprocessing import Process, Pipe
 
 import tensorflow as tf
@@ -65,6 +64,8 @@ class Optimizer:
         """
         Apply optimizations and return a TFLite model
         """
+        print(
+            f"PRUNING: {self.optimizationParam.isPruningEnabled()} - CLUSTERIZE: {self.optimizationParam.isClusteringEnabled()} - QUANTIZE: {self.optimizationParam.isQuantizationEnabled()}")
 
         # Start process
         if self.optimizationParam.isPruningEnabled():
@@ -86,7 +87,7 @@ class Optimizer:
             recevied_accuracy = receiver.recv()
             if (
                     self.early_breakup_accuracy is not None
-                    and recevied_accuracy + (self.delta_precision/100) < self.early_breakup_accuracy
+                    and recevied_accuracy + (self.delta_precision / 100) < self.early_breakup_accuracy
             ):
                 self.logger.info(f"PR: STOPPED WITH ACCURACY OF {recevied_accuracy}")
                 p.kill()
@@ -116,7 +117,7 @@ class Optimizer:
             recevied_accuracy = receiver.recv()
             if (
                     self.early_breakup_accuracy is not None
-                    and recevied_accuracy + (self.delta_precision/100) < self.early_breakup_accuracy
+                    and recevied_accuracy + (self.delta_precision / 100) < self.early_breakup_accuracy
             ):
                 self.logger.info(f"CL: STOPPED WITH ACCURACY OF {recevied_accuracy}")
                 p.kill()

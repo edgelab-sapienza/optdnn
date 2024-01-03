@@ -11,7 +11,6 @@ from termcolor import colored
 from tf_optimizer_core.benchmarker_core import BenchmarkerCore
 
 from tf_optimizer.benchmarker.model_info import ModelInfo
-from tf_optimizer.benchmarker.result import Result
 from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.task_manager.edge_device import EdgeDevice
 from . import utils as utils
@@ -128,88 +127,6 @@ class Benchmarker:
                 results[str(device_id)].append(model)
                 print(f"{device_id} in {result.accuracy}")
             """
-        return results
-
-    def summary(
-            self,
-            fieldToOrder: FieldToOrder = FieldToOrder.InsertedOrder,
-            order: Ordering = Ordering.Asc,
-    ) -> List[Result]:
-        results = []
-
-        has_reference = any(map(lambda x: x.is_reference, self.models))
-        if has_reference:
-            reference = list(filter(lambda x: x.is_reference, self.models))
-            slowest_time = reference[0].time
-        else:
-            slowest_time = max(map(lambda x: x.time, self.models))
-
-        x = PrettyTable()
-        # Build table header
-        x.field_names = ["ID", "Model", "time (ms)", "Speedup", "Accuracy", "Size"]
-
-        # Order elements
-        isDescendOrder = order == Ordering.Desc
-        if fieldToOrder == FieldToOrder.Accuracy:
-            self.models.sort(key=lambda e: e.accuracy, reverse=isDescendOrder)
-        elif fieldToOrder == FieldToOrder.Name:
-            self.models.sort(key=lambda e: e.name, reverse=isDescendOrder)
-        elif fieldToOrder == FieldToOrder.Size:
-            self.models.sort(key=lambda e: e.size, reverse=isDescendOrder)
-        elif fieldToOrder == FieldToOrder.Time:
-            self.models.sort(key=lambda e: e.time, reverse=isDescendOrder)
-
-        index = 0
-        for model in self.models:
-            elements = []
-            elements.append(str(index))
-            elements.append(model.name)
-            result = Result(model, id=index)
-            index += 1
-
-            # Append time
-            took_time = model.time
-            isFastest = took_time == min(map(lambda x: x.time, self.models))
-            isSlowest = took_time == max(map(lambda x: x.time, self.models))
-            took_time_str = "{0:.4f}".format(took_time)
-            if isFastest:
-                took_time_str = colored(took_time_str, "green")
-            elif isSlowest:
-                took_time_str = colored(took_time_str, "red")
-            elements.append(took_time_str)
-
-            # Append speedup
-            speedup = slowest_time / model.time
-            speedup_str = str("{0:.2f}".format(speedup)) + "x"
-            if isFastest:
-                speedup_str = colored(speedup_str, "green")
-            elif isSlowest:
-                speedup_str = colored(speedup_str, "red")
-            elements.append(speedup_str)
-            result.speedup = speedup
-
-            # Append accuracy
-            accuracy_str = "{0:.2f}%".format(model.accuracy * 100)
-            if model.accuracy == max(map(lambda x: x.accuracy, self.models)):  # Better
-                accuracy_str = colored(accuracy_str, "green")
-            elif model.accuracy == min(map(lambda x: x.accuracy, self.models)):  # Worse
-                accuracy_str = colored(accuracy_str, "red")
-            elements.append(accuracy_str)
-
-            size = model.size
-            # Append model size
-            size_str = utils.sizeof_fmt(size)
-            if size == max(map(lambda x: x.size, self.models)):  # Larger
-                size_str = colored(size_str, "red")
-            elif size == min(map(lambda x: x.size, self.models)):  # Smaller
-                size_str = colored(size_str, "green")
-            elements.append(size_str)
-            results.append(result)
-
-            x.add_row(elements)
-
-        print(x)
-        # Returns a list with the results
         return results
 
     async def set_dataset(self, dataset: DatasetManager):

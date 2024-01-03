@@ -145,16 +145,19 @@ async def main():
 
     device.id = 0
     bc = Benchmarker(edge_devices=[device])
-    for cluster in range(10, 51, 1):
+    for cluster in range(10, 101, 5):
         tuner.optimization_param.set_number_of_cluster(cluster)
-        tuner.optimization_param.toggle_clustering(False)
-        optimized, result = await tuner.getOptimizedModel(model_path, original_acc)
+        tuner.optimization_param.toggle_clustering(True)
+        tuner.optimization_param.toggle_pruning(True)
+        optimized, result = await tuner.getOptimizedModel(model_path, 0.65, 1)
 
         if result is None:
             logger(f"Cluster {cluster} result is none", 'info', 'one')
         else:
             print(f"MEASURED {result.time} | {result.accuracy} WITH {cluster} clusters")
-            logger(f"CLUSTERS {cluster} -> SIZE {result.size} AND TIME {result.time}", 'info', 'one')
+            logger(
+                f"CLUSTERS {cluster} -> SIZE {result.size} AND TIME {result.time} PR:{tuner.optimization_param.isPruningEnabled()} CL:{tuner.optimization_param.isClusteringEnabled()}",
+                'info', 'one')
         bc.add_tf_lite_model(optimized, f"CLUSTER_{cluster}")
 
     os.remove(model_path)
