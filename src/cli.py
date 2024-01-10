@@ -1,8 +1,6 @@
 import argparse
 import asyncio
-import logging
 import multiprocessing
-import os
 import pathlib
 import sys
 import tempfile
@@ -10,46 +8,17 @@ import tempfile
 import tensorflow as tf
 
 from tf_optimizer.benchmarker.benchmarker import Benchmarker
-from tf_optimizer.configuration import Configuration
 from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.optimizer.optimization_param import ModelProblemInt
 from tf_optimizer.optimizer.tuner import Tuner
 from tf_optimizer.task_manager.edge_device import EdgeDevice
-
-
-def setup_logger(logger_name, log_file, level=logging.INFO):
-    log_setup = logging.getLogger(logger_name)
-    formatter = logging.Formatter('%(levelname)s: %(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
-    fileHandler = logging.FileHandler(log_file, mode='a')
-    fileHandler.setFormatter(formatter)
-    streamHandler = logging.StreamHandler()
-    streamHandler.setFormatter(formatter)
-    log_setup.setLevel(level)
-    log_setup.addHandler(fileHandler)
-    log_setup.addHandler(streamHandler)
-
-
-def logger(msg, level, logfile):
-    if logfile == 'one': log = logging.getLogger('log_one')
-    if logfile == 'two': log = logging.getLogger('log_two')
-    if level == 'info': log.info(msg)
-    if level == 'warning': log.warning(msg)
-    if level == 'error': log.error(msg)
+from tf_optimizer.task_manager.task import Task
 
 
 async def main():
     gpus = tf.config.experimental.list_physical_devices("GPU")
     gpu = gpus[0]
     tf.config.experimental.set_memory_growth(gpu, True)
-
-    input_file = None
-    dataset_path = None
-    batch_size = None
-    ds_scale = None
-    img_size = None
-    remote_addr = None
-    remote_port = None
-    configuration = Configuration()
 
     parser = argparse.ArgumentParser(
         prog="tf_optimizer",
@@ -104,7 +73,6 @@ async def main():
     )
 
     args = parser.parse_args()
-    args = parser.parse_args()
 
     input_file = args.input
     dataset_path = args.dataset
@@ -129,51 +97,27 @@ async def main():
         exit()
     print(f"INPUT SIZE {detected_input_size}")
     img_shape = (detected_input_size[1], detected_input_size[2])
+    # dm = DatasetManager(dataset_path, img_size=img_shape, scale=ds_scale)
     dm = DatasetManager(dataset_path, img_size=img_shape, data_format="caffe")
     tuner = Tuner(original, dm, ModelProblemInt.CATEGORICAL_CLASSIFICATION, batch_size)
-    setup_logger('log_one', "LOG_ONE.log")
-    logger(f"OPTIMIZING {os.path.basename(input_file)}", 'info', 'one')
     result = await tuner.test_model(input_file)
     print(f"MEASURED RESULTS {result}")
     original_acc = result.accuracy
-    logger(f"ORIGINAL ACCURACY {original_acc}", 'info', 'one')
     model_path = tempfile.mktemp("*.keras")
     original.save(model_path)
 
-    # device = EdgeDevice("192.168.0.113", 22051)
     device = EdgeDevice("192.168.0.68", 12300)
-
     device.id = 0
     bc = Benchmarker(edge_devices=[device])
-    for cluster in range(20, 35, 2):
-        tuner.optimization_param.set_number_of_cluster(cluster)
-        tuner.optimization_param.toggle_clustering(True)
-        tuner.optimization_param.toggle_pruning(True)
-        optimized, result = await tuner.find_pruned_model(model_path, original_acc, 1.5)
 
-        if result is None:
-            logger(f"Cluster {cluster} result is none", 'info', 'one')
-        else:
-            print(f"MEASURED {result.time} | {result.accuracy} WITH {cluster} clusters")
-            logger(
-                f"CLUSTERS {cluster} -> SIZE {result.size} AND TIME {result.time} PR:{tuner.optimization_param.isPruningEnabled()} CL:{tuner.optimization_param.isClusteringEnabled()}",
-                'info', 'one')
-        bc.add_tf_lite_model(optimized, f"CLUSTER_{cluster}")
-
-    os.remove(model_path)
+    tuner = Tuner(original, dm, ModelProblemInt.CATEGORICAL_CLASSIFICATION, batch_size)
+    tflite_model = await tuner.get_optimized_model()
+    bc.add_tf_lite_model(tflite_model, "optimized")
+    bc.add_model(original, "original")
     await bc.set_dataset(dm)
     results = await bc.benchmark()
-    logger(f"Result on edge device {device}", 'info', 'one')
-    logger("Time", 'info', 'one')
     for result in results["0"]:
-        clusters = result.name.split("_")[-1]
-        time = result.time
-        logger(f"({clusters},{time})", 'info', 'one')
-    logger("Sizes", 'info', 'one')
-    for result in results["0"]:
-        clusters = result.name.split("_")[-1]
-        size = result.size
-        logger(f"({clusters},{size})", 'info', 'one')
+        print(f"NAME:{result.name}\tTIME:{result.time}\tSIZE:{result.size}\tACC:{result.accuracy}")
 
 
 if __name__ == "__main__":

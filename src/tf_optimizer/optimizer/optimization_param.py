@@ -1,12 +1,15 @@
-from enum import Enum, auto, IntEnum
+import pickle
 from dataclasses import dataclass
+from enum import Enum, auto, IntEnum
+
 import tensorflow as tf
 import tensorflow_model_optimization as tfmot
-import pickle
+
 
 class ModelProblemInt(IntEnum):
     CATEGORICAL_CLASSIFICATION = 0
     BINARY_CLASSIFICATION = 1
+
 
 @dataclass
 class QuantizationLayerToPrune(Enum):
@@ -34,11 +37,26 @@ class QuantizationParameter:
             return False
         else:
             return (
-                self.isEnabled == __value.isEnabled
-                and self.layersToPrune == __value.layersToPrune
-                and self.inOutType == __value.inOutType
-                and self.quantizationTechnique == __value.quantizationTechnique
+                    self.isEnabled == __value.isEnabled
+                    and self.layersToPrune == __value.layersToPrune
+                    and self.inOutType == __value.inOutType
+                    and self.quantizationTechnique == __value.quantizationTechnique
             )
+
+    def quantization_has_in_out_int(self) -> bool:
+        return self.layersToPrune == QuantizationLayerToPrune.AllLayers
+
+    def get_in_out_type(self) -> tf.DType:
+        return self.inOutType
+
+    def set_in_out_type(self, t: tf.DType):
+        self.inOutType = t
+
+    def set_quantization_technique(self, technique: QuantizationTechnique):
+        self.quantizationTechnique = technique
+
+    def get_quantization_technique(self) -> QuantizationTechnique:
+        return self.quantizationTechnique
 
 
 class PruningScheduleType(Enum):
@@ -58,7 +76,7 @@ class PruningPlan:
             string += "PolynomialDecay "
         elif self.schedule == PruningScheduleType.Constant:
             string += "Constant "
-        string += f"{int(self.targetSparsity*100)}%"
+        string += f"{int(self.targetSparsity * 100)}%"
         return string
 
     def toJSON(self) -> bytes:
@@ -82,9 +100,27 @@ class PruningPlan:
             return False
         else:
             return (
-                self.isEnabled == __value.isEnabled
-                and self.schedule == __value.schedule
-                and self.targetSparsity == __value.targetSparsity
+                    self.isEnabled == __value.isEnabled
+                    and self.schedule == __value.schedule
+                    and self.targetSparsity == __value.targetSparsity
+            )
+
+    def generate_pruning_schedule(
+            self,
+            number_of_steps: int,
+    ) -> tfmot.sparsity.keras.PruningSchedule:
+        if self.schedule is PruningScheduleType.PolynomialDecay:
+            return tfmot.sparsity.keras.PolynomialDecay(
+                initial_sparsity=self.targetSparsity / 4,
+                final_sparsity=self.targetSparsity,  # Percentage of cutted weights
+                begin_step=0,
+                end_step=number_of_steps,
+            )
+        else:  # Setted as default
+            return tfmot.sparsity.keras.ConstantSparsity(
+                target_sparsity=self.targetSparsity,
+                begin_step=0,
+                end_step=number_of_steps,
             )
 
 
@@ -112,18 +148,6 @@ class OptimizationParam:
 
     def quantizationHasInOutInt(self) -> bool:
         return self.__quantization__.layersToPrune == QuantizationLayerToPrune.AllLayers
-
-    def get_in_out_type(self) -> tf.DType:
-        return self.__quantization__.inOutType
-
-    def set_in_out_type(self, t: tf.DType):
-        self.__quantization__.inOutType = t
-
-    def set_quantization_technique(self, technique: QuantizationTechnique):
-        self.__quantization__.quantizationTechnique = technique
-
-    def get_quantization_technique(self) -> QuantizationTechnique:
-        return self.__quantization__.quantizationTechnique
 
     # Pruning methods
     def set_pruning_schedule(self, schedule: PruningScheduleType):
@@ -153,8 +177,8 @@ class OptimizationParam:
 
     # General method
     def generate_pruning_schedule(
-        self,
-        number_of_steps: int,
+            self,
+            number_of_steps: int,
     ) -> tfmot.sparsity.keras.PruningSchedule:
         if self.__pruningPlan__.schedule is PruningScheduleType.PolynomialDecay:
             return tfmot.sparsity.keras.PolynomialDecay(
@@ -194,8 +218,8 @@ class OptimizationParam:
             return False
         else:
             return (
-                self.__pruningPlan__ == __value.__pruningPlan__
-                and self.__numberOfCluster__ == __value.__numberOfCluster__
-                and self.__clusteringIsEnabled__ == __value.__clusteringIsEnabled__
-                and self.__quantization__ == __value.__quantization__
+                    self.__pruningPlan__ == __value.__pruningPlan__
+                    and self.__numberOfCluster__ == __value.__numberOfCluster__
+                    and self.__clusteringIsEnabled__ == __value.__clusteringIsEnabled__
+                    and self.__quantization__ == __value.__quantization__
             )

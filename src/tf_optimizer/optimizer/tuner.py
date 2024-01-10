@@ -17,11 +17,10 @@ from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.optimizer.optimization_param import (
     OptimizationParam,
     QuantizationLayerToPrune,
-    QuantizationTechnique, ModelProblemInt,
+    QuantizationTechnique, ModelProblemInt, PruningPlan, QuantizationParameter,
 )
 from tf_optimizer.optimizer.optimizer import Optimizer
 from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
-from tf_optimizer.task_manager.task import OptimizationPriorityInt
 from tf_optimizer_core.benchmarker_core import BenchmarkerCore, Result
 
 
@@ -51,24 +50,20 @@ class Tuner:
             original_model: tf.keras.Sequential,
             dataset: DatasetManager,
             model_problem: ModelProblemInt,
-            batchsize=32,
-            optimized_model_path=None,
-            priority: OptimizationPriorityInt = OptimizationPriorityInt.SPEED
+            batch_size=32,
     ) -> None:
         self.original_model = original_model
         self.dataset_manager = dataset
-        self.batch_size = batchsize
+        self.batch_size = batch_size
         self.optimization_param = OptimizationParam()
         self.optimization_param.toggle_pruning(True)
         self.optimization_param.set_pruning_target_sparsity(0.5)
         self.optimization_param.toggle_quantization(True)
         self.optimization_param.set_number_of_cluster(16)
         self.optimization_param.toggle_clustering(True)
-        self.optimized_model_path = optimized_model_path
         self.applied_prs = []
         self.no_cluster_prs = []
         self.max_cluster_fails = 0
-        self.isSpeedPrioritized = priority is OptimizationPriorityInt.SPEED
         self.model_problem = model_problem
         now = datetime.now()
         date_time = now.strftime("%m-%d-%Y-%H:%M:%S")
@@ -82,31 +77,7 @@ class Tuner:
         )
         logging.info(f"DS:{self.dataset_manager.get_path()}")
         logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
-        self.configuation = Configuration()
-        layersToQuantize = self.configuation.getConfig("QUANTIZATION", "layers")
-        if layersToQuantize == "ALL":
-            self.optimization_param.set_quantized_layers(
-                QuantizationLayerToPrune.AllLayers
-            )
-            self.optimization_param.set_in_out_type(tf.uint8)
-        else:
-            self.optimization_param.set_quantized_layers(
-                QuantizationLayerToPrune.OnlyDeepLayer
-            )
-        qTech = self.configuation.getConfig("QUANTIZATION", "type")
-        if qTech == "QAT":
-            print("Quantization Aware Training Selected")
-            self.optimization_param.set_quantization_technique(
-                QuantizationTechnique.QuantizationAwareTraining
-            )
-        elif qTech == "PTQ":
-            print("Post Training Quantization Selected")
-            self.optimization_param.set_quantization_technique(
-                QuantizationTechnique.PostTrainingQuantization
-            )
-        else:
-            print(f"QUANTIZATION TYPE:{qTech} NOT VALID")
-            exit(ProcessErrorCode.WrongQuantizationType)
+        self.configuration = Configuration()
 
     @staticmethod
     def measure_keras_accuracy_process(
@@ -184,175 +155,149 @@ class Tuner:
             p.join()
             return res
 
-    async def getOptimizedModel(
-            self, model_path, targetAccuracy: float, percentagePrecision: float = 2.0
-    ) -> tuple[bytes, Result]:
-        iterations = 0
-        pruningRatio = 0.5
-        minPruningRatio = 0
-        maxPruningRatio = 1
-        tflite_model = None
-        model_result = None
-        reachedAccuracy = 0
-        self.optimization_param.set_pruning_target_sparsity(pruningRatio)
-        counter_back_direction = 0
-        counter_forward_direction = 0
-        if self.optimization_param.get_number_of_cluster() <= self.max_cluster_fails:
-            self.optimization_param.toggle_clustering(False)
-            logging.info(
-                f"SINCE REQUIRED NUMBER OF CLUSTER {self.optimization_param.get_number_of_cluster()} IS BELOW {self.max_cluster_fails}, CLUSTERIZATION IS DISABLED"
-            )
-        while abs(reachedAccuracy - targetAccuracy) > percentagePrecision / 100:
+    async def find_pruned_model(
+            self, input_model_path: str, optimizer: Optimizer, target_accuracy: float, percentage_precision: float = 2.0
+    ) -> str:
+        pruning_ratio = 0.5
+        min_pruning_ratio = 0
+        max_pruning_ratio = 1
+        self.optimization_param.set_pruning_target_sparsity(pruning_ratio)
+        pruning_plan = PruningPlan()
+        pruning_plan.schedule = PruningPlan.schedule.PolynomialDecay
+        logging.info(f"PR: Target accuracy of {target_accuracy}")
+
+        while True:
             # Computing pruning rate
-            if (
-                    iterations == 0
-                    and self.optimization_param.isClusteringEnabled()
-                    and len(self.applied_prs) > 0
-            ):
-                pruningRatio = mean(self.applied_prs)
-            elif (
-                    iterations == 0
-                    and not self.optimization_param.isClusteringEnabled()
-                    and len(self.no_cluster_prs) > 0
-            ):
-                pruningRatio = mean(self.no_cluster_prs)
-            elif iterations == 0 or (
-                    iterations == 1
-                    and (len(self.applied_prs) > 0 or len(self.no_cluster_prs) > 0)
-            ):
-                # If first iteration and applied_pr is empty
-                # if mean of applied_pr has failed, so it starts from the middle
-                pruningRatio = 0.5
-            elif reachedAccuracy < targetAccuracy or tflite_model is None:  # Go left
-                # Pruning ratio decreases
-                maxPruningRatio = pruningRatio
-                pruningRatio = (minPruningRatio + pruningRatio) / 2
-                counter_back_direction += 1
-                counter_forward_direction = 0
-            else:  # Go rigth
-                # Pruning ration increases
-                minPruningRatio = pruningRatio
-                pruningRatio = (maxPruningRatio + pruningRatio) / 2
-                counter_forward_direction += 1
-                counter_back_direction = 0
+            # If first iteration and applied_pr is empty
+            # if mean of applied_pr has failed, so it starts from the middle
 
-            # Apply optimizations
-            self.optimization_param.set_pruning_target_sparsity(pruningRatio)
+            pruning_plan.targetSparsity = pruning_ratio
             tf.keras.backend.clear_session()
-            optimizer = Optimizer(
-                model_path,
-                model_problem=self.model_problem,
-                optimization_param=self.optimization_param,
-                batch_size=self.batch_size,
-                dataset_manager=self.dataset_manager,
-                early_breakup_accuracy=targetAccuracy,
-                logger=logging,
-            )
-            logging.info(f"Optimizing with PR of {pruningRatio}")
-            tflite_model = optimizer.optimize()
 
-            if tflite_model is None:
-                logging.info("Early stopped")
-            else:  # Accuracy is ok in pruning or/and clustering
-                model_result = await self.test_model(tflite_model)
-                reachedAccuracy = model_result.accuracy
-                logging.info(f"Measured accuracy {reachedAccuracy}")
-                if not self.optimization_param.isPruningEnabled():
-                    break
-            if counter_back_direction > self.configuation.getConfig(
-                    "CLUSTERING", "number_of_backstep_to_exit"
-            ):
-                if self.optimization_param.isClusteringEnabled():
-                    # Accuracy is too high, clusterization disabled
-                    logging.info("Accuracy is too high, clusterization disabled")
-                    self.max_cluster_fails = self.optimization_param.get_number_of_cluster()
-                    self.optimization_param.toggle_clustering(False)
-                else:
-                    logging.info("Accuracy is too high, pruning disabled")
-                    self.optimization_param.toggle_pruning(False)
-                
-                return await self.getOptimizedModel(
-                    model_path, targetAccuracy, percentagePrecision
-                )
-            iterations += 1
-        logging.info(
-            f"Found model with acc:{reachedAccuracy} in {iterations} iterations"
-        )
-        if self.optimization_param.isClusteringEnabled():
-            # If accuracy is ok, add pr in the list
-            self.applied_prs.append(pruningRatio)
-        else:
-            self.no_cluster_prs.append(pruningRatio)
-        return tflite_model, model_result
+            logging.info(f"Optimizing with PR of {pruning_ratio}")
+            reached_accuracy = optimizer.prune_model(input_model_path, None, pruning_plan)
+            logging.info(f"PR:{pruning_ratio} returns an accuracy of {reached_accuracy}")
+            logging.info(
+                f"PR: Comparing reached {reached_accuracy}, with target:{target_accuracy}, diff:{abs(reached_accuracy - target_accuracy)} and delta:{percentage_precision / 100}")
 
-    async def tune(self) -> bytes:
-        # Get parameters from config
-        right = self.configuation.getConfig("CLUSTERING", "max_clusters_number")
-        left = self.configuation.getConfig("CLUSTERING", "min_clusters_numbers")
-        delta_precision = self.configuation.getConfig("TUNER", "DELTA_PERCENTAGE")
-        isClusteringEnabled = self.configuation.getConfig("CLUSTERING", "enabled")
+            if abs(reached_accuracy - target_accuracy) <= percentage_precision / 100:
+                break
+            elif reached_accuracy < target_accuracy:  # Go left
+                # Pruning ratio decreases
+                max_pruning_ratio = pruning_ratio
+                pruning_ratio = (min_pruning_ratio + pruning_ratio) / 2
+            else:  # Go right
+                # Pruning ratio increases
+                min_pruning_ratio = pruning_ratio
+                pruning_ratio = (max_pruning_ratio + pruning_ratio) / 2
 
+        pruned_model_path = tempfile.mkdtemp("pruned_model")
+        pruning_plan.targetSparsity = pruning_ratio - 0.03
+        reached_accuracy = optimizer.prune_model(input_model_path, pruned_model_path, pruning_plan)
+        logging.info(f"PR:{pruning_plan.targetSparsity} final accuracy {reached_accuracy}")
+        return pruned_model_path
+
+    async def get_optimized_model(self) -> bytes:
         # Step 0, save original model
         original_model_path = tempfile.mkdtemp()
         self.original_model.save(original_model_path)
 
+        # Step 1, evaluate original model
         model_performance = await self.test_model(original_model_path)
-        targetAccuracy = model_performance.accuracy
-        logging.info(f"Target accuracy: {targetAccuracy}")
+        target_accuracy = model_performance.accuracy
+        logging.info(f"Target accuracy: {target_accuracy}")
 
-        self.optimization_param.toggle_clustering(True)
-        cached_result = {}
+        delta_precision = self.configuration.getConfig("TUNER", "DELTA_PERCENTAGE")
 
-        while isClusteringEnabled and abs(left - right) > 2:
-            left_third = int(left + (right - left) / 3)
-            right_third = int(right - (right - left) / 3)
-            tf.keras.backend.clear_session()
-            logging.info(f"Optimizing with {left_third} clusters")
-
-            if left_third in cached_result.keys():
-                result_left = cached_result[left_third]
-            else:
-                self.optimization_param.set_number_of_cluster(left_third)
-                self.optimization_param.toggle_clustering(True)
-                _, result = await self.getOptimizedModel(
-                    original_model_path,
-                    targetAccuracy,
-                    percentagePrecision=delta_precision,
-                )
-                result_left = result.time if self.isSpeedPrioritized else result.size
-                cached_result[left_third] = result_left
-
-            tf.keras.backend.clear_session()
-            logging.info(f"Optimizing with {right_third} clusters")
-
-            if right_third in cached_result.keys():
-                result_right = cached_result[right_third]
-            else:
-                self.optimization_param.set_number_of_cluster(right_third)
-                self.optimization_param.toggle_clustering(True)
-                _, result = await self.getOptimizedModel(
-                    original_model_path,
-                    targetAccuracy,
-                    percentagePrecision=delta_precision,
-                )
-                result_right = result.time if self.isSpeedPrioritized else result.size
-                cached_result[right_third] = result_right
-
-                logging.info(f"NUMBER OF CLUSTERS :{right_third}\tSIZE: {result.size}\tSPEED: {result.time}")
-
-            if result_left > result_right:
-                left = left_third
-            else:
-                right = right_third
-
-            logging.info(f"NEXT EVALUATED LEFT:{left} - RIGHT:{right}")
-
-        choosen_clusters = (right + left) / 2  # Should be the minimum
-
-        self.optimization_param.set_number_of_cluster(int(choosen_clusters))
-        self.optimization_param.toggle_clustering(True and isClusteringEnabled)
-        optimized_model, _ = await self.getOptimizedModel(
-            original_model_path, targetAccuracy, percentagePrecision=delta_precision
+        optimizer = Optimizer(
+            model_problem=self.model_problem,
+            batch_size=self.batch_size,
+            dataset_manager=self.dataset_manager,
+            logger=logging,
         )
 
-        return optimized_model
+        # Step 2, prune the model
+        pruned_model_path = await self.find_pruned_model(
+            original_model_path,
+            optimizer,
+            target_accuracy - 0.01,
+            percentage_precision=delta_precision)
+
+        # # Step 3, clusterize the model
+        clustered_model_path = await self.find_clustered_model(
+            pruned_model_path,
+            optimizer,
+            percentage_precision=delta_precision
+        )
+
+        # Step 4, quantize the model
+        quantization_parameter = QuantizationParameter()
+        layers_to_quantize = self.configuration.getConfig("QUANTIZATION", "layers")
+        if layers_to_quantize == "ALL":
+            quantization_parameter.layersToPrune = QuantizationLayerToPrune.AllLayers
+            quantization_parameter.set_in_out_type(tf.uint8)
+        else:
+            quantization_parameter.layersToPrune = QuantizationLayerToPrune.OnlyDeepLayer
+
+        quantization_technique = self.configuration.getConfig("QUANTIZATION", "type")
+        if quantization_technique == "QAT":
+            print("Quantization Aware Training Selected")
+            quantization_parameter.set_quantization_technique(QuantizationTechnique.QuantizationAwareTraining)
+
+        elif quantization_technique == "PTQ":
+            print("Post Training Quantization Selected")
+            quantization_parameter.set_quantization_technique(QuantizationTechnique.PostTrainingQuantization)
+        else:
+            print(f"QUANTIZATION TYPE:{quantization_technique} NOT VALID")
+            exit(ProcessErrorCode.WrongQuantizationType)
+
+        quantized_model = await optimizer.quantize_model(clustered_model_path, quantization_parameter)
+        return quantized_model
+
+    async def find_clustered_model(self, input_model_path: str, optimizer: Optimizer,
+                                   percentage_precision: float = 2.0) -> str:
+        # Get parameters from config
+        right: int = self.configuration.getConfig("CLUSTERING", "max_clusters_number")
+        left: int = self.configuration.getConfig("CLUSTERING", "min_clusters_numbers")
+        is_clustering_enabled: bool = self.configuration.getConfig("CLUSTERING", "enabled")
+        model_performance = await self.test_model(input_model_path)
+        target_accuracy = model_performance.accuracy
+
+        while is_clustering_enabled and abs(left - right) > 1:
+            left_third: int = int(left + (right - left) / 3)
+            right_third: int = int(right - (right - left) / 3)
+            tf.keras.backend.clear_session()
+
+            logging.info(f"L: Optimizing with {left_third} clusters")
+            result_left = optimizer.clusterize(input_model_path, None, left_third)
+            is_left_valid = abs(result_left - target_accuracy) <= percentage_precision / 100
+
+            logging.info(
+                f"Clustering with {left_third} clusters returns acc: {result_left}, target: {target_accuracy}, {is_left_valid}")
+            if is_left_valid:
+                right = left_third
+                logging.info(f"Step on left of {left_third}")
+                continue
+
+            tf.keras.backend.clear_session()
+
+            logging.info(f"R: Optimizing with {right_third} clusters")
+            result_right = optimizer.clusterize(input_model_path, None, right_third)
+            is_right_valid = abs(result_right - target_accuracy) <= percentage_precision / 100
+
+            logging.info(
+                f"Clustering with {right_third} clusters returns acc: {result_right}, target: {target_accuracy}, {is_right_valid}")
+
+            if is_left_valid is False and is_right_valid is False:
+                left = right_third
+                logging.info(f"Step on right of {right_third}")
+            elif is_left_valid is False and is_right_valid is True:
+                # Step in the middle
+                left = left_third
+                right = right_third
+                logging.info(f"Step between {left_third} and {right_third}")
+
+        output_model_path: str = tempfile.mkdtemp("clustered_model")
+        logging.info(f"FINAL RESULT:{right} - {output_model_path}")
+        optimizer.clusterize(input_model_path, output_model_path, right)
+        return output_model_path
