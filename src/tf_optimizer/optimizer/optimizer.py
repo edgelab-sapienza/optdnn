@@ -32,7 +32,7 @@ class Optimizer:
 
     def __representative_dataset_gen__(self):
         for image_batch, labels_batch in (
-                self.dataset_manager.generate_batched_dataset()[0].shuffle(16).take(16)
+                self.dataset_manager.generate_batched_dataset()[0].shuffle(16)
         ):
             yield [image_batch]
 
