@@ -2,11 +2,13 @@ import logging
 import multiprocessing
 import os
 import pathlib
+import shutil
 import sys
 import tempfile
 from datetime import datetime
 from statistics import mean
 from time import time
+from typing import Optional
 
 import tensorflow as tf
 
@@ -157,7 +159,7 @@ class Tuner:
 
     async def find_pruned_model(
             self, input_model_path: str, optimizer: Optimizer, target_accuracy: float, percentage_precision: float = 2.0
-    ) -> str:
+    ) -> tuple[str, float]:
         pruning_ratio = 0.5
         min_pruning_ratio = 0
         max_pruning_ratio = 1
@@ -195,7 +197,7 @@ class Tuner:
         pruning_plan.targetSparsity = pruning_ratio - 0.03
         reached_accuracy = optimizer.prune_model(input_model_path, pruned_model_path, pruning_plan)
         logging.info(f"PR:{pruning_plan.targetSparsity} final accuracy {reached_accuracy}")
-        return pruned_model_path
+        return pruned_model_path, pruning_plan.targetSparsity
 
     async def get_optimized_model(self) -> bytes:
         # Step 0, save original model
@@ -217,20 +219,29 @@ class Tuner:
         )
 
         # Step 2, prune the model
-        pruned_model_path = await self.find_pruned_model(
+        pruned_model_path, final_pruning_rate = await self.find_pruned_model(
             original_model_path,
             optimizer,
             target_accuracy - 0.01,
             percentage_precision=delta_precision)
 
-        # # Step 3, clusterize the model
+        # Step 3, clusterize the model
         clustered_model_path = await self.find_clustered_model(
             pruned_model_path,
             optimizer,
             percentage_precision=delta_precision
         )
+        if clustered_model_path is None:
+            clustered_model_path = pruned_model_path
+        else:
+            shutil.rmtree(pruned_model_path)
 
         # Step 4, quantize the model
+        quantized_model = await self.quantize_model(clustered_model_path, optimizer)
+        shutil.rmtree(clustered_model_path)
+        return quantized_model
+
+    async def quantize_model(self, input_model_path: str, optimizer: Optimizer) -> bytes:
         quantization_parameter = QuantizationParameter()
         layers_to_quantize = self.configuration.getConfig("QUANTIZATION", "layers")
         if layers_to_quantize == "ALL":
@@ -251,17 +262,25 @@ class Tuner:
             print(f"QUANTIZATION TYPE:{quantization_technique} NOT VALID")
             exit(ProcessErrorCode.WrongQuantizationType)
 
-        quantized_model = await optimizer.quantize_model(clustered_model_path, quantization_parameter)
+        quantized_model = await optimizer.quantize_model(input_model_path, quantization_parameter)
         return quantized_model
 
     async def find_clustered_model(self, input_model_path: str, optimizer: Optimizer,
-                                   percentage_precision: float = 2.0) -> str:
+                                   percentage_precision: float = 2.0) -> Optional[str]:
         # Get parameters from config
         right: int = self.configuration.getConfig("CLUSTERING", "max_clusters_number")
         left: int = self.configuration.getConfig("CLUSTERING", "min_clusters_numbers")
         is_clustering_enabled: bool = self.configuration.getConfig("CLUSTERING", "enabled")
         model_performance = await self.test_model(input_model_path)
         target_accuracy = model_performance.accuracy
+
+        async def compute_model(input_model: str, number_of_clusters: int) -> float:
+            output_model = tempfile.mkdtemp("temp_clust_model")
+            optimizer.clusterize(input_model, output_model, number_of_clusters)
+            q_model = await self.quantize_model(output_model, optimizer)
+            result = await self.test_model(q_model)
+            shutil.rmtree(output_model)
+            return result.accuracy
 
         while is_clustering_enabled and abs(left - right) > 1:
             left_third: int = int(left + (right - left) / 3)
@@ -270,6 +289,7 @@ class Tuner:
 
             logging.info(f"L: Optimizing with {left_third} clusters")
             result_left = optimizer.clusterize(input_model_path, None, left_third)
+            # result_left = await compute_model(input_model_path, left_third)
             is_left_valid = abs(result_left - target_accuracy) <= percentage_precision / 100
 
             logging.info(
@@ -283,6 +303,7 @@ class Tuner:
 
             logging.info(f"R: Optimizing with {right_third} clusters")
             result_right = optimizer.clusterize(input_model_path, None, right_third)
+            # result_right = await compute_model(input_model_path, right_third)
             is_right_valid = abs(result_right - target_accuracy) <= percentage_precision / 100
 
             logging.info(
@@ -299,5 +320,9 @@ class Tuner:
 
         output_model_path: str = tempfile.mkdtemp("clustered_model")
         logging.info(f"FINAL RESULT:{right} - {output_model_path}")
-        optimizer.clusterize(input_model_path, output_model_path, right)
-        return output_model_path
+        final_accuracy = optimizer.clusterize(input_model_path, output_model_path, right)
+        if abs(final_accuracy - target_accuracy) < percentage_precision / 100:
+            return output_model_path
+        else:  # It is not possible to reach the accuracy constraint, so clustering is disabled
+            shutil.rmtree(output_model_path)
+            return None
