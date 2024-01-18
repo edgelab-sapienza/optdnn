@@ -24,7 +24,7 @@ from tf_optimizer.optimizer.optimization_param import (
 from tf_optimizer.optimizer.optimizer import Optimizer
 from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
 from tf_optimizer_core.benchmarker_core import BenchmarkerCore, Result
-
+from tf_optimizer.task_manager.task import Task
 
 class SpeedMeausureCallback(tf.keras.callbacks.Callback):
     current_batch_times = []
