@@ -1,13 +1,13 @@
 import tempfile
 from multiprocessing import Process, Pipe
-from typing import Optional
+from typing import Optional, Union
 
 import tensorflow as tf
 
 from tf_optimizer.configuration import Configuration
 from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.optimizer.optimization_param import (
-    ModelProblemInt, PruningPlan, QuantizationParameter,
+    ModelProblemInt, PruningPlan, QuantizationParameter, QuantizationType,
 )
 from tf_optimizer.optimizer.optimizer_process import OptimizerProcess
 
@@ -28,11 +28,10 @@ class Optimizer:
         self.logger = logger
         self.model_problem = model_problem
         self.configuration = Configuration()
-        self.delta_precision = self.configuration.getConfig("TUNER", "DELTA_PERCENTAGE")
 
     def __representative_dataset_gen__(self):
         for image_batch, labels_batch in (
-                self.dataset_manager.generate_batched_dataset()[0].shuffle(16)
+                self.dataset_manager.generate_batched_dataset()[0].shuffle(16).take(32)
         ):
             yield [image_batch]
 
@@ -58,7 +57,7 @@ class Optimizer:
         p.close()
         return received_accuracy
 
-    async def quantize_model(self, input_model: str, quantization_parameter: QuantizationParameter) -> bytes:
+    async def quantize_model(self, input_model: Union[str,tf.keras.Sequential], quantization_parameter: QuantizationParameter) -> bytes:
         if quantization_parameter.quantizationTechnique is QuantizationParameter.quantizationTechnique.QuantizationAwareTraining:
             print("Starting QAT")
             qat_model_path = tempfile.mktemp("quantized_model.tflite")
@@ -69,7 +68,7 @@ class Optimizer:
                     self.dataset_manager.toJSON(),
                     self.batch_size,
                     self.model_problem,
-                    qat_model_path
+                    qat_model_path,
                 ),
             )
             p.start()
@@ -80,24 +79,33 @@ class Optimizer:
             f.close()
             return model_bytes
         else:
-            converter = tf.lite.TFLiteConverter.from_saved_model(input_model)
-
+            if type(input_model) is str:
+                converter = tf.lite.TFLiteConverter.from_saved_model(input_model)
+            else:
+                converter = tf.lite.TFLiteConverter.from_keras_model(input_model)
+            converter.optimizations = [tf.lite.Optimize.DEFAULT]
             print("GENERATING REPR DATASET")
             converter.representative_dataset = tf.lite.RepresentativeDataset(
                 self.__representative_dataset_gen__
             )
-            print("BUILT IN INT8")
-            converter.target_spec.supported_ops = [
-                tf.lite.OpsSet.TFLITE_BUILTINS_INT8
-            ]
+            if quantization_parameter.quantizationType is QuantizationType.ForceInt8:
+                converter.target_spec.supported_ops = [
+                    tf.lite.OpsSet.TFLITE_BUILTINS_INT8
+                ]
+            elif quantization_parameter.quantizationType is QuantizationType.AllFP16:
+                converter.target_spec.supported_types = [tf.float16]
+            elif quantization_parameter.quantizationType is QuantizationType.WeightInt8ActivationInt16:
+                converter.target_spec.supported_ops = [
+                    tf.lite.OpsSet.EXPERIMENTAL_TFLITE_BUILTINS_ACTIVATIONS_INT16_WEIGHTS_INT8,
+                    tf.lite.OpsSet.TFLITE_BUILTINS
+                ]
+
             if quantization_parameter.quantization_has_in_out_int():
                 print("HAS INT IN/OUT")
                 # If also in and out layers are integers
                 in_out_type = quantization_parameter.get_in_out_type()
                 converter.inference_input_type = in_out_type
                 converter.inference_output_type = in_out_type
-
-            converter.optimizations = [tf.lite.Optimize.DEFAULT]
             return converter.convert()
 
     def clusterize(self, input_model: str, output_model: Optional[str], number_of_clusters: int) -> float:

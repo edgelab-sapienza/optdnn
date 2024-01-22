@@ -15,7 +15,6 @@ from tf_optimizer.optimizer.tuner import Tuner
 from tf_optimizer.task_manager.edge_device import EdgeDevice
 from tf_optimizer.task_manager.task import Task
 
-
 def setup_logger(logger_name, log_file, level=logging.INFO):
     log_setup = logging.getLogger(logger_name)
     formatter = logging.Formatter('%(levelname)s: %(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
@@ -92,7 +91,6 @@ async def main():
         choices=['tf', 'torch', 'caffe'],
         default=None,
     )
-
     parser.add_argument(
         "--image_size",
         type=str,
@@ -108,6 +106,14 @@ async def main():
     dataset_path = args.dataset
     optimizations = args.opt
     test_run = args.test_opt
+    batch_size = args.batch
+    ds_scale = args.dataset_range
+    img_size = args.image_size
+
+    args = parser.parse_args()
+
+    input_file = args.input
+    dataset_path = args.dataset
     batch_size = args.batch
     ds_scale = args.dataset_range
     img_size = args.image_size
@@ -142,17 +148,18 @@ async def main():
     original.save(model_path)
 
     device = EdgeDevice("192.168.0.113", 22051)
+    # device = EdgeDevice("192.168.0.68", 12300)
+
     device.id = 0
     bc = Benchmarker(edge_devices=[device])
 
-    tuner = Tuner(original, dm, ModelProblemInt.CATEGORICAL_CLASSIFICATION, batch_size)
     tflite_model = await tuner.get_optimized_model()
     bc.add_tf_lite_model(tflite_model, "optimized")
     bc.add_model(original, "original")
     await bc.set_dataset(dm)
     results = await bc.benchmark()
     for result in results["0"]:
-        print(f"NAME:{result.name}\tTIME:{result.time}\tSIZE:{result.size}\tACC:{result.accuracy}")
+        # print(f"NAME:{result.name}\tTIME:{result.time}\tSIZE:{result.size}\tACC:{result.accuracy}")
         logger(f"NAME:{result.name}\tTIME:{result.time}\tSIZE:{result.size}\tACC:{result.accuracy}", 'info', 'one')
 
 

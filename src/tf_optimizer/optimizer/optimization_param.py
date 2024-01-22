@@ -12,7 +12,7 @@ class ModelProblemInt(IntEnum):
 
 
 @dataclass
-class QuantizationLayerToPrune(Enum):
+class QuantizationLayerToQuantize(Enum):
     OnlyDeepLayer = auto()
     AllLayers = auto()
 
@@ -24,27 +24,38 @@ class QuantizationTechnique(Enum):
 
 
 @dataclass
+class QuantizationType(Enum):
+    Standard = auto()
+    ForceInt8 = auto()
+    WeightInt8ActivationInt16 = auto()
+    AllFP16 = auto()
+
+
+@dataclass
 class QuantizationParameter:
     isEnabled: bool = False
-    layersToPrune: QuantizationLayerToPrune = QuantizationLayerToPrune.OnlyDeepLayer
+    layers_to_quantize: QuantizationLayerToQuantize = QuantizationLayerToQuantize.OnlyDeepLayer
     inOutType: tf.DType = tf.float32
     quantizationTechnique: QuantizationTechnique = (
         QuantizationTechnique.PostTrainingQuantization
     )
+    quantizationType: QuantizationType = QuantizationType.ForceInt8
 
-    def __eq__(self, __value: object) -> bool:
-        if not isinstance(__value, QuantizationParameter):
+    def __eq__(self, __value__: object) -> bool:
+        if not isinstance(__value__, QuantizationParameter):
             return False
         else:
             return (
-                    self.isEnabled == __value.isEnabled
-                    and self.layersToPrune == __value.layersToPrune
-                    and self.inOutType == __value.inOutType
-                    and self.quantizationTechnique == __value.quantizationTechnique
+                    self.isEnabled == __value__.isEnabled
+                    and self.layers_to_quantize == __value__.layers_to_quantize
+                    and self.inOutType == __value__.inOutType
+                    and self.quantizationTechnique == __value__.quantizationTechnique
+                    and self.quantizationType == __value__.quantizationType
             )
 
     def quantization_has_in_out_int(self) -> bool:
-        return self.layersToPrune == QuantizationLayerToPrune.AllLayers
+        return self.layers_to_quantize == QuantizationLayerToQuantize.AllLayers and (
+                    self.inOutType == tf.int8 or self.inOutType == tf.uint8)
 
     def get_in_out_type(self) -> tf.DType:
         return self.inOutType
@@ -134,12 +145,12 @@ class OptimizationParam:
     def toggle_quantization(self, isEnabled: bool):
         self.__quantization__.isEnabled = isEnabled
 
-    def set_quantized_layers(self, p: QuantizationLayerToPrune):
-        self.__quantization__.layersToPrune = p
+    def set_quantized_layers(self, p: QuantizationLayerToQuantize):
+        self.__quantization__.layers_to_quantize = p
 
     def set_quantization_type(self, type: tf.DType):
         if type is tf.uint8 or type is tf.int8 or type is tf.float16:
-            self.__quantization__.layersToPrune = type
+            self.__quantization__.layers_to_quantize = type
         else:
             print(f"Type {type} not valid")
 
@@ -147,7 +158,7 @@ class OptimizationParam:
         return self.__quantization__.isEnabled
 
     def quantizationHasInOutInt(self) -> bool:
-        return self.__quantization__.layersToPrune == QuantizationLayerToPrune.AllLayers
+        return self.__quantization__.layers_to_quantize == QuantizationLayerToQuantize.AllLayers
 
     # Pruning methods
     def set_pruning_schedule(self, schedule: PruningScheduleType):

@@ -8,7 +8,7 @@ import tempfile
 from datetime import datetime
 from statistics import mean
 from time import time
-from typing import Optional
+from typing import Optional, Union
 
 import tensorflow as tf
 
@@ -18,8 +18,8 @@ from tf_optimizer.configuration import Configuration
 from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.optimizer.optimization_param import (
     OptimizationParam,
-    QuantizationLayerToPrune,
-    QuantizationTechnique, ModelProblemInt, PruningPlan, QuantizationParameter,
+    QuantizationLayerToQuantize,
+    QuantizationTechnique, ModelProblemInt, PruningPlan, QuantizationParameter, QuantizationType,
 )
 from tf_optimizer.optimizer.optimizer import Optimizer
 from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
@@ -115,7 +115,7 @@ class Tuner:
         res.accuracy = metrics[1]
         q.put(res)
 
-    async def test_model(self, model) -> Result:
+    async def test_model(self, model: Union[bytes, str, pathlib.PosixPath]) -> Result:
         if isinstance(model, bytes):
             print("Measuring tflite model accuracy")
             bc = BenchmarkerCore(
@@ -132,7 +132,10 @@ class Tuner:
             model = str(model)
             print(f"Measuring {model}")
             # Start a new process
-            lr: float = self.original_model.optimizer.learning_rate.numpy()
+            try:
+                lr: float = self.original_model.optimizer.learning_rate.numpy()
+            except:
+                lr = 1e-5
             try:
                 from_logits: bool = self.original_model.loss.get_config()["from_logits"]
             except AttributeError:
@@ -182,6 +185,7 @@ class Tuner:
             logging.info(
                 f"PR: Comparing reached {reached_accuracy}, with target:{target_accuracy}, diff:{abs(reached_accuracy - target_accuracy)} and delta:{percentage_precision / 100}")
 
+            old_pruning_ratio = pruning_ratio
             if abs(reached_accuracy - target_accuracy) <= percentage_precision / 100:
                 break
             elif reached_accuracy < target_accuracy:  # Go left
@@ -192,10 +196,17 @@ class Tuner:
                 # Pruning ratio increases
                 min_pruning_ratio = pruning_ratio
                 pruning_ratio = (max_pruning_ratio + pruning_ratio) / 2
+            if abs(pruning_ratio - old_pruning_ratio) < self.configuration.getConfig("PRUNING",
+                                                                                     "min_pruning_ratio_update"):
+                break
+            if pruning_ratio < self.configuration.getConfig("PRUNING","min_pruning_ratio"):
+                logging.info(f"PRUNING RATE TOO LOW {pruning_ratio}, PRUNING DISABLED")
+                return input_model_path, 0
 
         pruned_model_path = tempfile.mkdtemp("pruned_model")
-        pruning_plan.targetSparsity = pruning_ratio - 0.03
+        pruning_plan.targetSparsity = pruning_ratio + self.configuration.getConfig("PRUNING", "final_step")
         reached_accuracy = optimizer.prune_model(input_model_path, pruned_model_path, pruning_plan)
+
         logging.info(f"PR:{pruning_plan.targetSparsity} final accuracy {reached_accuracy}")
         return pruned_model_path, pruning_plan.targetSparsity
 
@@ -209,8 +220,6 @@ class Tuner:
         target_accuracy = model_performance.accuracy
         logging.info(f"Target accuracy: {target_accuracy}")
 
-        delta_precision = self.configuration.getConfig("TUNER", "DELTA_PERCENTAGE")
-
         optimizer = Optimizer(
             model_problem=self.model_problem,
             batch_size=self.batch_size,
@@ -222,33 +231,37 @@ class Tuner:
         pruned_model_path, final_pruning_rate = await self.find_pruned_model(
             original_model_path,
             optimizer,
-            target_accuracy - 0.01,
-            percentage_precision=delta_precision)
+            target_accuracy + self.configuration.getConfig("PRUNING", "delta_finding"),
+            percentage_precision=self.configuration.getConfig("PRUNING", "delta_percentage")
+        )
 
         # Step 3, clusterize the model
         clustered_model_path = await self.find_clustered_model(
             pruned_model_path,
             optimizer,
-            percentage_precision=delta_precision
+            percentage_precision=self.configuration.getConfig("CLUSTERING", "delta_percentage")
         )
         if clustered_model_path is None:
+            logging.info(f"CLUSTERING DISABLED")
             clustered_model_path = pruned_model_path
         else:
             shutil.rmtree(pruned_model_path)
 
         # Step 4, quantize the model
+        logging.info(f"QUANTIZING {clustered_model_path}")
         quantized_model = await self.quantize_model(clustered_model_path, optimizer)
         shutil.rmtree(clustered_model_path)
+        shutil.rmtree(original_model_path)
         return quantized_model
 
     async def quantize_model(self, input_model_path: str, optimizer: Optimizer) -> bytes:
         quantization_parameter = QuantizationParameter()
         layers_to_quantize = self.configuration.getConfig("QUANTIZATION", "layers")
         if layers_to_quantize == "ALL":
-            quantization_parameter.layersToPrune = QuantizationLayerToPrune.AllLayers
+            quantization_parameter.layers_to_quantize = QuantizationLayerToQuantize.AllLayers
             quantization_parameter.set_in_out_type(tf.uint8)
         else:
-            quantization_parameter.layersToPrune = QuantizationLayerToPrune.OnlyDeepLayer
+            quantization_parameter.layers_to_quantize = QuantizationLayerToQuantize.OnlyDeepLayer
 
         quantization_technique = self.configuration.getConfig("QUANTIZATION", "type")
         if quantization_technique == "QAT":
@@ -262,8 +275,25 @@ class Tuner:
             print(f"QUANTIZATION TYPE:{quantization_technique} NOT VALID")
             exit(ProcessErrorCode.WrongQuantizationType)
 
-        quantized_model = await optimizer.quantize_model(input_model_path, quantization_parameter)
-        return quantized_model
+        result = await self.test_model(input_model_path)
+        target_accuracy = result.accuracy
+
+        best_quantized_model: Optional[tuple[float, bytes]] = None
+        qTypes: list[QuantizationType] = \
+            [QuantizationType.ForceInt8, QuantizationType.Standard, QuantizationType.AllFP16]
+        # Test this quantization types in order, the first which matches the accuracy is used
+        for qType in qTypes:
+            quantization_parameter.quantizationType = qType
+            quantized_model: bytes = await optimizer.quantize_model(input_model_path, quantization_parameter)
+            result = await self.test_model(quantized_model)
+            logging.info(f"Quantization {qType} get {result.accuracy} | size {result.size} | time: {result.time}")
+            if abs(result.accuracy - target_accuracy) < self.configuration.getConfig("QUANTIZATION", "delta_percentage") / 100:
+                best_quantized_model = (result.accuracy, quantized_model)
+                break
+            elif best_quantized_model is None or result.accuracy > best_quantized_model[0]:
+                best_quantized_model = (result.accuracy, quantized_model)
+
+        return best_quantized_model[1]
 
     async def find_clustered_model(self, input_model_path: str, optimizer: Optimizer,
                                    percentage_precision: float = 2.0) -> Optional[str]:
@@ -282,6 +312,8 @@ class Tuner:
             shutil.rmtree(output_model)
             return result.accuracy
 
+        max_obtained: Optional[tuple[int, float]] = None
+
         while is_clustering_enabled and abs(left - right) > 1:
             left_third: int = int(left + (right - left) / 3)
             right_third: int = int(right - (right - left) / 3)
@@ -290,7 +322,16 @@ class Tuner:
             logging.info(f"L: Optimizing with {left_third} clusters")
             result_left = optimizer.clusterize(input_model_path, None, left_third)
             # result_left = await compute_model(input_model_path, left_third)
-            is_left_valid = abs(result_left - target_accuracy) <= percentage_precision / 100
+            is_left_valid = result_left > target_accuracy - percentage_precision / 100
+
+            if max_obtained is None:
+                max_obtained = (left_third, result_left)
+
+            if left_third > max_obtained[0]:  # New value has more cluster than the max
+                if result_left >= max_obtained[1]:  # New value is better than the old
+                    max_obtained = (left_third, result_left)
+                else:  # New value with more clusters is worste
+                    return None
 
             logging.info(
                 f"Clustering with {left_third} clusters returns acc: {result_left}, target: {target_accuracy}, {is_left_valid}")
@@ -304,10 +345,16 @@ class Tuner:
             logging.info(f"R: Optimizing with {right_third} clusters")
             result_right = optimizer.clusterize(input_model_path, None, right_third)
             # result_right = await compute_model(input_model_path, right_third)
-            is_right_valid = abs(result_right - target_accuracy) <= percentage_precision / 100
+            is_right_valid = result_right > target_accuracy - percentage_precision / 100
 
             logging.info(
                 f"Clustering with {right_third} clusters returns acc: {result_right}, target: {target_accuracy}, {is_right_valid}")
+
+            if right_third > max_obtained[0]:  # New value has more cluster than the max
+                if result_right >= max_obtained[1]:  # New value is better than the old
+                    max_obtained = (right_third, result_right)
+                else:  # New value with more clusters is worste
+                    return None
 
             if is_left_valid is False and is_right_valid is False:
                 left = right_third

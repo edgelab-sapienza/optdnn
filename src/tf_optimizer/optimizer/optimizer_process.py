@@ -1,5 +1,6 @@
 import os
 import shutil
+import tempfile
 from typing import Optional
 
 import tensorflow as tf
@@ -13,6 +14,17 @@ from tf_optimizer.optimizer.optimization_param import ModelProblemInt, PruningPl
 """
 This class contains all the static code that will be spawned on dedicated processes for the optimization
 """
+
+
+class MyThresholdCallback(tf.keras.callbacks.Callback):
+    def __init__(self, threshold):
+        super(MyThresholdCallback, self).__init__()
+        self.threshold = threshold
+
+    def on_epoch_end(self, epoch, logs=None):
+        val_acc = logs["val_accuracy"]
+        if val_acc >= self.threshold:
+            self.model.stop_training = True
 
 
 class MyPolicy(PruningPolicy):
@@ -77,11 +89,9 @@ class OptimizerProcess:
         callbacks = [
             tfmot.sparsity.keras.UpdatePruningStep(),
         ]
-        try:
-            lr = model.optimizer.learning_rate.numpy()
-        except AttributeError:
-            lr = 1e-5
-        optimizer = tf.keras.optimizers.Adam(learning_rate=1e-5)
+        optimizer = tf.keras.optimizers.Adam(
+            learning_rate=1e-5  # model.optimizer.learning_rate.numpy()
+        )
         try:
             from_logits = model.loss.get_config()["from_logits"]
         except AttributeError:
@@ -124,17 +134,15 @@ class OptimizerProcess:
         gpu = gpus[0]
         tf.config.experimental.set_memory_growth(gpu, True)
         dataset_manager = DatasetManager.fromJSON(serial_dataset_manager)
-        force_clustering_sparcing_preserve = False
 
         CentroidInitialization = tfmot.clustering.keras.CentroidInitialization
         clustering_params = {
-            "preserve_sparsity": number_of_clusters > 0
-                                 or force_clustering_sparcing_preserve,
+            "preserve_sparsity": True
         }
         # Cluster a whole model
         cluster_weights = tfmot.clustering.keras.cluster_weights
+        model: tf.keras.models.Sequential = tf.keras.models.load_model(model_path)
         try:
-            model = tf.keras.models.load_model(model_path)
             clustered_model = cluster_weights(
                 model,
                 number_of_clusters=number_of_clusters,
@@ -143,7 +151,6 @@ class OptimizerProcess:
             )
         except tf.errors.InvalidArgumentError as e:
             print("Cannot use KMEANS++, DENSITY BASED APPROACH IS USED")
-            model = tf.keras.models.load_model(model_path)
             clustered_model = cluster_weights(
                 model,
                 number_of_clusters=number_of_clusters,
@@ -190,41 +197,29 @@ class OptimizerProcess:
             serial_dataset_manager: bytes,
             batch_size: int,
             problem_type: ModelProblemInt,
-            output_model_path: str
+            output_model_path: str,
+            original_acc: Optional[float]
     ) -> None:
         gpus = tf.config.experimental.list_physical_devices("GPU")
         gpu = gpus[0]
         tf.config.experimental.set_memory_growth(gpu, True)
         dataset_manager = DatasetManager.fromJSON(serial_dataset_manager)
-        model = tf.keras.models.load_model(model_path)
+        model: tf.keras.Sequential = tf.keras.models.load_model(model_path)
+        train_ds, test_ds = dataset_manager.generate_batched_dataset(
+            batch_size=batch_size
+        )
 
-        # def apply_quantization_to_layer(layer):
-        #     if isinstance(layer, tf.keras.layers.BatchNormalization):
-        #         print(f"SKIPPED QAT {layer}")
-        #         return layer
-        #     else:
-        #         return tfmot.quantization.keras.quantize_annotate_layer(layer)
-
-        # model = tf.keras.models.clone_model(
-        #     model,
-        #     clone_function=apply_quantization_to_layer,
-        # )
-        #
-        # model = tfmot.quantization.keras.quantize_apply(
-        #     model,
-        #     tfmot.experimental.combine.Default8BitClusterPreserveQuantizeScheme(
-        #         preserve_sparsity=True
-        #     ),
-        # )
         quant_aware_annotate_model = tfmot.quantization.keras.quantize_annotate_model(model)
         pcqat_model = tfmot.quantization.keras.quantize_apply(
             quant_aware_annotate_model,
             tfmot.experimental.combine.Default8BitClusterPreserveQuantizeScheme(preserve_sparsity=True))
-        try:
-            lr = model.optimizer.learning_rate.numpy()
-        except AttributeError:
-            lr = 1e-5
-        optimizer = tf.keras.optimizers.Adam(learning_rate=1e-5)
+
+        if model.optimizer is None:
+            optimizer = tf.keras.optimizers.Adam(
+                learning_rate=1e-5  # model.optimizer.learning_rate.numpy()
+            )
+        else:
+            optimizer = model.optimizer
         try:
             from_logits = model.loss.get_config()["from_logits"]
         except AttributeError:
@@ -236,15 +231,29 @@ class OptimizerProcess:
             loss = tf.keras.losses.BinaryCrossentropy(from_logits=from_logits)
             pcqat_model.compile(optimizer=optimizer, loss=loss, metrics=["binary_accuracy"])
         # Fine-tune the model
-        train_ds, test_ds = dataset_manager.generate_batched_dataset(
-            batch_size=batch_size
+
+        best_model_path = tempfile.mkdtemp()
+        checkpoint = tf.keras.callbacks.ModelCheckpoint(best_model_path,
+                                                        monitor="val_loss", mode="min",
+                                                        save_best_only=True, verbose=1)
+        early_stop = tf.keras.callbacks.EarlyStopping(
+            monitor="val_loss",
+            restore_best_weights=False,
         )
+
+        callbacks = [early_stop, checkpoint]
+        # if original_acc is not None:
+        #     stop_threshold = MyThresholdCallback(original_acc)
+        #     callbacks.append(stop_threshold)
+
         pcqat_model.fit(
             train_ds,
             validation_data=test_ds,
-            epochs=1,
+            epochs=10,
             batch_size=batch_size,
+            callbacks=callbacks
         )
+
         converter = tf.lite.TFLiteConverter.from_keras_model(pcqat_model)
         converter.optimizations = [tf.lite.Optimize.DEFAULT]
         tflite_model = converter.convert()
