@@ -19,10 +19,6 @@ class TaskStatus(IntEnum):
     FAILED = 3
 
 
-class OptimizationPriorityInt(IntEnum):
-    SPEED = 0
-    SIZE = 1
-
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -40,7 +36,6 @@ class Task(Base):
     # Generated url used to download the file
     download_url = Column(String, nullable=True, default=None)
     error_msg = Column(String, nullable=True, default=None)
-    optimization_priority = Column(Integer, default=OptimizationPriorityInt.SPEED.value)
     model_problem = Column(Integer)
     data_format = Column(String, nullable=True, default=None)
     devices: Mapped[List["EdgeDevice"]] = relationship(back_populates="task", lazy="joined")
@@ -54,7 +49,7 @@ class Task(Base):
         return (
                 f"ID: {self.id}, status: {self.status}, created_at: {self.created_at}, dataset_scale: {self.dataset_scale}, "
                 + f"model_url: {self.model_url}, dataset_url: {self.dataset_url}, img_size: {self.img_size}, "
-                + f"callback_url: {self.callback_url}, batch_size: {self.batch_size}, priority: {self.optimization_priority}"
+                + f"callback_url: {self.callback_url}, batch_size: {self.batch_size},"
                 + f"data_format: {self.data_format}"
         )
 
@@ -74,7 +69,6 @@ class Task(Base):
                     and self.batch_size == __value.batch_size
                     and self.pid == __value.pid
                     and self.download_url == __value.download_url
-                    and self.optimization_priority == __value.optimization_priority
                     and self.model_problem == __value.model_problem
             )
 
@@ -92,7 +86,6 @@ class Task(Base):
         d["pid"] = self.pid
         d["download_url_callback"] = self.download_url
         d["devices"] = self.devices
-        d["priority"] = self.optimization_priority
         d["model_problem"] = self.model_problem
         d["data_format"] = self.data_format
         return pickle.dumps(d)
@@ -113,7 +106,6 @@ class Task(Base):
         t.pid = data["pid"]
         t.download_url = data["download_url_callback"]
         t.devices = data["devices"]
-        t.optimization_priority = data["priority"]
         t.model_problem = data["model_problem"]
         t.data_format = data["data_format"]
 

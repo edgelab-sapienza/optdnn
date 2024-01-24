@@ -27,7 +27,7 @@ class MyThresholdCallback(tf.keras.callbacks.Callback):
             self.model.stop_training = True
 
 
-class MyPolicy(PruningPolicy):
+class MyPolicy(tfmot.sparsity.keras.PruneForLatencyOnXNNPack):
     def allow_pruning(self, layer):
         return (
                 isinstance(layer, prunable_layer.PrunableLayer)

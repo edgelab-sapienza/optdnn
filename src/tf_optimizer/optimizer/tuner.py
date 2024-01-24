@@ -26,6 +26,7 @@ from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
 from tf_optimizer_core.benchmarker_core import BenchmarkerCore, Result
 from tf_optimizer.task_manager.task import Task
 
+
 class SpeedMeausureCallback(tf.keras.callbacks.Callback):
     current_batch_times = []
     start_time = 0
@@ -79,7 +80,115 @@ class Tuner:
         )
         logging.info(f"DS:{self.dataset_manager.get_path()}")
         logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+        logging.info(f"INITIAL PARAMETERS {original_model.count_params()}")
+        flops, macs = Tuner.net_flops(original_model)
+        logging.info(f"INITIAL FLOPS {flops}")
+        logging.info(f"INITIAL MACS {macs}")
+
         self.configuration = Configuration()
+
+    @staticmethod
+    def net_flops(model, table=False) -> tuple[float, float]:
+        # Code from https://github.com/ckyrkou/Keras_FLOP_Estimator/blob/master/python_code/net_flops.py
+        if table == True:
+            print('%25s | %16s | %16s | %16s | %16s | %6s | %6s' % (
+                'Layer Name', 'Input Shape', 'Output Shape', 'Kernel Size', 'Filters', 'Strides', 'FLOPS'))
+            print('-' * 170)
+        t_flops = 0
+        t_macc = 0
+        for l in model.layers:
+            o_shape, i_shape, strides, ks, filters = ['', '', ''], ['', '', ''], [1, 1], [0, 0], [0, 0]
+            flops = 0
+            macc = 0
+            name = l.name
+            factor = 1000000
+            if 'InputLayer' in str(l):
+                i_shape = l.input.get_shape()[1:4].as_list()
+                o_shape = i_shape
+            if 'Reshape' in str(l):
+                i_shape = l.input.get_shape()[1:4].as_list()
+                o_shape = l.output.get_shape()[1:4].as_list()
+            if 'Add' in str(l) or 'Maximum' in str(l) or 'Concatenate' in str(l):
+                i_shape = l.input[0].get_shape()[1:4].as_list() + [len(l.input)]
+                o_shape = l.output.get_shape()[1:4].as_list()
+                flops = (len(l.input) - 1) * i_shape[0] * i_shape[1] * i_shape[2]
+            if 'Average' in str(l) and 'pool' not in str(l):
+                i_shape = l.input[0].get_shape()[1:4].as_list() + [len(l.input)]
+                o_shape = l.output.get_shape()[1:4].as_list()
+                flops = len(l.input) * i_shape[0] * i_shape[1] * i_shape[2]
+            if 'BatchNormalization' in str(l):
+                i_shape = l.input.get_shape()[1:4].as_list()
+                o_shape = l.output.get_shape()[1:4].as_list()
+                bflops = 1
+                for i in range(len(i_shape)):
+                    bflops *= i_shape[i]
+                flops /= factor
+            if 'Activation' in str(l) or 'activation' in str(l):
+                i_shape = l.input.get_shape()[1:4].as_list()
+                o_shape = l.output.get_shape()[1:4].as_list()
+                bflops = 1
+                for i in range(len(i_shape)):
+                    bflops *= i_shape[i]
+                flops /= factor
+            if 'pool' in str(l) and ('Global' not in str(l)):
+                i_shape = l.input.get_shape()[1:4].as_list()
+                strides = l.strides
+                ks = l.pool_size
+                flops = ((i_shape[0] / strides[0]) * (i_shape[1] / strides[1]) * (ks[0] * ks[1] * i_shape[2]))
+            if 'Flatten' in str(l):
+                i_shape = l.input.shape[1:4].as_list()
+                flops = 1
+                out_vec = 1
+                for i in range(len(i_shape)):
+                    flops *= i_shape[i]
+                    out_vec *= i_shape[i]
+                o_shape = flops
+                flops = 0
+            if 'Dense' in str(l):
+                print(l.input)
+                i_shape = l.input.shape[1:4].as_list()[0]
+                if (i_shape == None):
+                    i_shape = out_vec
+                o_shape = l.output.shape[1:4].as_list()
+                flops = 2 * (o_shape[0] * i_shape)
+                macc = flops / 2
+            if 'Padding' in str(l):
+                flops = 0
+            if 'Global' in str(l):
+                i_shape = l.input.get_shape()[1:4].as_list()
+                flops = ((i_shape[0]) * (i_shape[1]) * (i_shape[2]))
+                o_shape = [l.output.get_shape()[1:4].as_list(), 1, 1]
+                out_vec = o_shape
+            if 'Conv2D ' in str(l) and 'DepthwiseConv2D' not in str(l) and 'SeparableConv2D' not in str(l):
+                strides = l.strides
+                ks = l.kernel_size
+                filters = l.filters
+                i_shape = l.input.get_shape()[1:4].as_list()
+                o_shape = l.output.get_shape()[1:4].as_list()
+                if (filters == None):
+                    filters = i_shape[2]
+                flops = 2 * ((filters * ks[0] * ks[1] * i_shape[2]) * (
+                        (i_shape[0] / strides[0]) * (i_shape[1] / strides[1])))
+                macc = flops / 2
+            if 'Conv2D ' in str(l) and 'DepthwiseConv2D' in str(l) and 'SeparableConv2D' not in str(l):
+                strides = l.strides
+                ks = l.kernel_size
+                filters = l.filters
+                i_shape = l.input.get_shape()[1:4].as_list()
+                o_shape = l.output.get_shape()[1:4].as_list()
+                if (filters == None):
+                    filters = i_shape[2]
+                flops = 2 * (
+                        (ks[0] * ks[1] * i_shape[2]) * ((i_shape[0] / strides[0]) * (i_shape[1] / strides[1])))
+                macc = flops / 2
+            t_macc += macc
+            t_flops += flops
+            if table:
+                print('%25s | %16s | %16s | %16s | %16s | %6s | %5.4f' % (
+                    name, str(i_shape), str(o_shape), str(ks), str(filters), str(strides), flops))
+        t_flops = t_flops / factor
+        # t_macc
+        return t_flops * (10 ** 6), t_macc
 
     @staticmethod
     def measure_keras_accuracy_process(
@@ -199,7 +308,7 @@ class Tuner:
             if abs(pruning_ratio - old_pruning_ratio) < self.configuration.getConfig("PRUNING",
                                                                                      "min_pruning_ratio_update"):
                 break
-            if pruning_ratio < self.configuration.getConfig("PRUNING","min_pruning_ratio"):
+            if pruning_ratio < self.configuration.getConfig("PRUNING", "min_pruning_ratio"):
                 logging.info(f"PRUNING RATE TOO LOW {pruning_ratio}, PRUNING DISABLED")
                 return input_model_path, 0
 
@@ -247,6 +356,13 @@ class Tuner:
         else:
             shutil.rmtree(pruned_model_path)
 
+        m = tf.keras.models.load_model(clustered_model_path)
+        logging.info(f"FINAL PARAMETERS {m.count_params()}")
+        flops, macs = Tuner.net_flops(m)
+        logging.info(f"FINAL FLOPS {flops}")
+        logging.info(f"FINAL MACS {macs}")
+        del m
+
         # Step 4, quantize the model
         logging.info(f"QUANTIZING {clustered_model_path}")
         quantized_model = await self.quantize_model(clustered_model_path, optimizer)
@@ -287,7 +403,8 @@ class Tuner:
             quantized_model: bytes = await optimizer.quantize_model(input_model_path, quantization_parameter)
             result = await self.test_model(quantized_model)
             logging.info(f"Quantization {qType} get {result.accuracy} | size {result.size} | time: {result.time}")
-            if abs(result.accuracy - target_accuracy) < self.configuration.getConfig("QUANTIZATION", "delta_percentage") / 100:
+            if abs(result.accuracy - target_accuracy) < self.configuration.getConfig("QUANTIZATION",
+                                                                                     "delta_percentage") / 100:
                 best_quantized_model = (result.accuracy, quantized_model)
                 break
             elif best_quantized_model is None or result.accuracy > best_quantized_model[0]:

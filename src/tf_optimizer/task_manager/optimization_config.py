@@ -6,12 +6,6 @@ from fastapi import Query
 from pydantic import BaseModel, Field
 from pydantic.networks import HttpUrl
 
-
-class OptimizationPriority(str, Enum):
-    SPEED = "speed"
-    SIZE = "size"
-
-
 class DataFormat(str, Enum):
     tf = "tf"
     caffe = "caffe"
@@ -43,8 +37,6 @@ class OptimizationConfig(BaseModel):
         example=["http://192.168.178.3:8080/callback?id=3", "http://my_pc.com/callback"],
         description="URL called when the optimization is ended", default=None)
     batch_size: int = Field(example=[32], description="Batch size", default=32)
-    priority: OptimizationPriority = Field(example=OptimizationPriority.SIZE, description="Optimization priority",
-                                           default=OptimizationPriority.SPEED)
     model_problem: ModelProblem = Field(example=ModelProblem.CATEGORICAL_CLASSIFICATION,
                                         description="Type of model problem")
     data_format: DataFormat = Field(example=DataFormat.tf, description="Type of data format", default=None)

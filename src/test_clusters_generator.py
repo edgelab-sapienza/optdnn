@@ -12,7 +12,9 @@ import tensorflow as tf
 from tf_optimizer.benchmarker.benchmarker import Benchmarker
 from tf_optimizer.configuration import Configuration
 from tf_optimizer.dataset_manager import DatasetManager
-from tf_optimizer.optimizer.optimization_param import ModelProblemInt
+from tf_optimizer.optimizer.optimization_param import ModelProblemInt, QuantizationParameter, \
+    QuantizationTechnique, QuantizationType
+from tf_optimizer.optimizer.optimizer import Optimizer
 from tf_optimizer.optimizer.tuner import Tuner
 from tf_optimizer.task_manager.edge_device import EdgeDevice
 
@@ -103,7 +105,15 @@ async def main():
         nargs=2,
     )
 
-    args = parser.parse_args()
+    parser.add_argument(
+        "--dataset_format",
+        type=str,
+        help="Dataset image format, [tf, torch, caffe]",
+        required=False,
+        choices=['tf', 'torch', 'caffe'],
+        default=None,
+    )
+
     args = parser.parse_args()
 
     input_file = args.input
@@ -115,7 +125,7 @@ async def main():
     img_size = args.image_size
 
     ds_scale = list(map(lambda x: int(x), ds_scale))
-    original = tf.keras.models.load_model(input_file)
+    original: tf.keras.Sequential = tf.keras.models.load_model(input_file)
 
     detected_input_size = original.input_shape
     if img_size[0] is not None and img_size[1] is not None:
@@ -129,7 +139,13 @@ async def main():
         exit()
     print(f"INPUT SIZE {detected_input_size}")
     img_shape = (detected_input_size[1], detected_input_size[2])
-    dm = DatasetManager(dataset_path, img_size=img_shape, data_format="caffe")
+    if args.dataset_format is not None:
+        dm = DatasetManager(dataset_path, img_size=img_shape, data_format=args.dataset_format)
+    else:
+        dm = DatasetManager(dataset_path, img_size=img_shape, scale=ds_scale)
+
+    # train, val = dm.generate_batched_dataset(batch_size=batch_size)
+
     tuner = Tuner(original, dm, ModelProblemInt.CATEGORICAL_CLASSIFICATION, batch_size)
     setup_logger('log_one', "LOG_ONE.log")
     logger(f"OPTIMIZING {os.path.basename(input_file)}", 'info', 'one')
@@ -140,40 +156,31 @@ async def main():
     model_path = tempfile.mktemp("*.keras")
     original.save(model_path)
 
-    # device = EdgeDevice("192.168.0.113", 22051)
-    device = EdgeDevice("192.168.0.68", 12300)
-
+    device = EdgeDevice("192.168.0.113", 22051)
+    # device = EdgeDevice("192.168.0.68", 12300)
     device.id = 0
+
     bc = Benchmarker(edge_devices=[device])
-    for cluster in range(20, 35, 2):
-        tuner.optimization_param.set_number_of_cluster(cluster)
-        tuner.optimization_param.toggle_clustering(True)
-        tuner.optimization_param.toggle_pruning(True)
-        optimized, result = await tuner.find_pruned_model(model_path, original_acc, 1.5)
+    optimizer = Optimizer(dm, ModelProblemInt.CATEGORICAL_CLASSIFICATION, batch_size)
 
-        if result is None:
-            logger(f"Cluster {cluster} result is none", 'info', 'one')
-        else:
-            print(f"MEASURED {result.time} | {result.accuracy} WITH {cluster} clusters")
-            logger(
-                f"CLUSTERS {cluster} -> SIZE {result.size} AND TIME {result.time} PR:{tuner.optimization_param.isPruningEnabled()} CL:{tuner.optimization_param.isClusteringEnabled()}",
-                'info', 'one')
-        bc.add_tf_lite_model(optimized, f"CLUSTER_{cluster}")
-
-    os.remove(model_path)
+    qTypes: list[QuantizationType] = \
+        [QuantizationType.ForceInt8, QuantizationType.WeightInt8ActivationInt16, QuantizationType.Standard,
+         QuantizationType.AllFP16]
+    # Test this quantization types in order, the first which matches the accuracy is used
+    quantization_parameter = QuantizationParameter()
+    quantization_parameter.set_quantization_technique(QuantizationTechnique.PostTrainingQuantization)
+    for qType in qTypes:
+        quantization_parameter.quantizationType = qType
+        quantized_model: bytes = await optimizer.quantize_model(original, quantization_parameter)
+        bc.add_tf_lite_model(quantized_model, qType.name)
     await bc.set_dataset(dm)
+    bc.add_model(original, "Original")
     results = await bc.benchmark()
-    logger(f"Result on edge device {device}", 'info', 'one')
-    logger("Time", 'info', 'one')
     for result in results["0"]:
-        clusters = result.name.split("_")[-1]
-        time = result.time
-        logger(f"({clusters},{time})", 'info', 'one')
-    logger("Sizes", 'info', 'one')
-    for result in results["0"]:
-        clusters = result.name.split("_")[-1]
-        size = result.size
-        logger(f"({clusters},{size})", 'info', 'one')
+        # print(f"NAME:{result.name}\tTIME:{result.time}\tSIZE:{result.size}\tACC:{result.accuracy}")
+        logger(f"NAME:{result.name}\tTIME:{result.time}\tSIZE:{result.size}\tACC:{result.accuracy}", 'info', 'one')
+
+
 
 
 if __name__ == "__main__":
