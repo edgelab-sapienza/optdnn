@@ -29,12 +29,9 @@ class EdgeDevice(Base):
         back_populates="edge", lazy="joined"
     )
 
-    local_address = None
-
-    def __init__(self, ip_address: str, port: int, local_addr: str = None):
+    def __init__(self, ip_address: str, port: int):
         self.ip_address = ip_address
         self.port = port
-        self.local_address = local_addr
         self.results = []
 
     def __str__(self):
@@ -50,7 +47,7 @@ class EdgeDevice(Base):
         uri = "ws://{}:{}".format(self.ip_address, self.port)
         print(f"SENDING {model_path}")
         async with websockets.connect(uri, ping_interval=None) as websocket:
-            fs = FileServer(model_path, local_address=self.local_address)
+            fs = FileServer(model_path)
             url = fs.get_file_url()
             text_message = url + Protocol.string_delimiter + model_name + Protocol.string_delimiter + str(self.id)
             msg = Protocol.build_put_model_file_request(text_message)
@@ -77,7 +74,7 @@ class EdgeDevice(Base):
         filename = shutil.make_archive(base_name, "zip", dataset)
 
         uri = "ws://{}:{}".format(self.ip_address, self.port)
-        fs = FileServer(filename, local_address=self.local_address)
+        fs = FileServer(filename)
         async with websockets.connect(uri) as websocket:
             # Send scale
             if dataset_manager.scale is not None and len(dataset_manager.scale)>0:

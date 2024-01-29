@@ -62,11 +62,13 @@ class handler(BaseHTTPRequestHandler):
 
 
 class FileServer:
-    def __init__(self, path: str, port: int = 8080, local_address: str = None) -> None:
+    def __init__(self, path: str) -> None:
         self.path = path
-        self.port = port
+        self.port = int(os.getenv("file_server_port", 8080))
+        local_address = os.getenv("file_server_ip_address", None)
         if local_address is None:
-            self.ip = ((([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")] or [
+            self.ip = (
+            (([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")] or [
                 [(s.connect(("8.8.8.8", 53)), s.getsockname()[0], s.close()) for s in
                  [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) + ["no IP found"])[0])
         else:
