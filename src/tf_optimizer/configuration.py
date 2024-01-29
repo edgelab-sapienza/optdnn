@@ -29,5 +29,8 @@ class Configuration:
         return input_string
 
     def getConfig(self, familiy: str, value: str) -> any:
-        v = self.config[familiy][value]
-        return Configuration.convert_to_types(v)
+        try:
+            v = self.config[familiy][value]
+            return Configuration.convert_to_types(v)
+        except KeyError:
+            return None
