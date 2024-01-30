@@ -40,6 +40,7 @@ class OptimizationConfig(BaseModel):
     model_problem: ModelProblem = Field(example=ModelProblem.CATEGORICAL_CLASSIFICATION,
                                         description="Type of model problem")
     data_format: DataFormat = Field(example=DataFormat.tf, description="Type of data format", default=None)
+    force_uint8: bool = Field(description="Force model to be quantized in int8, usefull for int8 devices", default=False)
 
     def __str__(self) -> str:
         return (

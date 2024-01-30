@@ -68,6 +68,7 @@ class Tuner:
         self.no_cluster_prs = []
         self.max_cluster_fails = 0
         self.model_problem = model_problem
+        self.force_uint8 = False
         now = datetime.now()
         date_time = now.strftime("%m-%d-%Y-%H:%M:%S")
         LOGS_DIR = "logs"
@@ -328,7 +329,10 @@ class Tuner:
         model_performance = await self.test_model(original_model_path)
         target_accuracy = model_performance.accuracy
         logging.info(f"Target accuracy: {target_accuracy}")
-
+        if target_accuracy < self.configuration.getConfig("GENERAL", "min_accuracy"):
+            # Probably there is a problem with the dataset
+            logging.info(f"Accuracy to low: {target_accuracy}")
+            exit(ProcessErrorCode.LowAccuracy)
         optimizer = Optimizer(
             model_problem=self.model_problem,
             batch_size=self.batch_size,
@@ -395,10 +399,11 @@ class Tuner:
         target_accuracy = result.accuracy
 
         best_quantized_model: Optional[tuple[float, bytes]] = None
-        qTypes: list[QuantizationType] = \
-            [QuantizationType.ForceInt8, QuantizationType.Standard, QuantizationType.AllFP16]
+        q_types: list[QuantizationType] = [QuantizationType.ForceInt8]
+        if not self.force_uint8:
+            q_types += [QuantizationType.Standard, QuantizationType.AllFP16]
         # Test this quantization types in order, the first which matches the accuracy is used
-        for qType in qTypes:
+        for qType in q_types:
             quantization_parameter.quantizationType = qType
             quantized_model: bytes = await optimizer.quantize_model(input_model_path, quantization_parameter)
             result = await self.test_model(quantized_model)

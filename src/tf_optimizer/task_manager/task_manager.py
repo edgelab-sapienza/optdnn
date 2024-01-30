@@ -257,6 +257,9 @@ class TaskManager:
             elif p.exitcode == ProcessErrorCode.ConnectionRefused:
                 msg = "Connection refused by the node"
                 tm.report_error(task.id, msg)
+            elif p.exitcode == ProcessErrorCode.LowAccuracy:
+                msg = "Accuracy is very low, maybe you dataset or your input range is wrong"
+                tm.report_error(task.id, msg)
             tm.update_task_state(task.id, TaskStatus.FAILED)
         task_workspace = task.get_workspace_path()
         if os.path.exists(task_workspace) and os.path.isdir(task_workspace):
@@ -312,6 +315,7 @@ class TaskManager:
             model_problem=t.model_problem,
             batch_size=t.batch_size,
         )
+        tuner.force_uint8 = t.force_uint8
         optimized_model = asyncio.run(tuner.get_optimized_model())
 
         bc = Benchmarker(edge_devices=t.devices)

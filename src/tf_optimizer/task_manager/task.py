@@ -5,7 +5,7 @@ import tempfile
 from enum import IntEnum
 from typing import List
 
-from sqlalchemy import Column, Integer, DateTime, String, JSON
+from sqlalchemy import Column, Integer, DateTime, String, JSON, Boolean
 from sqlalchemy.orm import relationship, Mapped
 
 from tf_optimizer import Base
@@ -38,6 +38,7 @@ class Task(Base):
     error_msg = Column(String, nullable=True, default=None)
     model_problem = Column(Integer)
     data_format = Column(String, nullable=True, default=None)
+    force_uint8 = Column(Boolean, default=False)
     devices: Mapped[List["EdgeDevice"]] = relationship(back_populates="task", lazy="joined")
 
     def generate_filename(self) -> str:
@@ -50,7 +51,7 @@ class Task(Base):
                 f"ID: {self.id}, status: {self.status}, created_at: {self.created_at}, dataset_scale: {self.dataset_scale}, "
                 + f"model_url: {self.model_url}, dataset_url: {self.dataset_url}, img_size: {self.img_size}, "
                 + f"callback_url: {self.callback_url}, batch_size: {self.batch_size},"
-                + f"data_format: {self.data_format}"
+                + f"data_format: {self.data_format}, force_uint8 {self.force_uint8}"
         )
 
     def __eq__(self, __value: object) -> bool:
@@ -70,6 +71,7 @@ class Task(Base):
                     and self.pid == __value.pid
                     and self.download_url == __value.download_url
                     and self.model_problem == __value.model_problem
+                    and self.force_uint8 == __value.force_uint8
             )
 
     def to_json(self) -> bytes:
@@ -88,6 +90,7 @@ class Task(Base):
         d["devices"] = self.devices
         d["model_problem"] = self.model_problem
         d["data_format"] = self.data_format
+        d["force_uint8"] = self.force_uint8
         return pickle.dumps(d)
 
     @staticmethod
@@ -108,6 +111,7 @@ class Task(Base):
         t.devices = data["devices"]
         t.model_problem = data["model_problem"]
         t.data_format = data["data_format"]
+        t.force_uint8 = data["force_uint8"]
 
         return t
 

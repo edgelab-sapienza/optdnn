@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 import multiprocessing
+import os.path
 import pathlib
 import sys
 import tempfile
@@ -13,7 +14,7 @@ from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.optimizer.optimization_param import ModelProblemInt
 from tf_optimizer.optimizer.tuner import Tuner
 from tf_optimizer.task_manager.edge_device import EdgeDevice
-from tf_optimizer.task_manager.task import Task
+
 
 def setup_logger(logger_name, log_file, level=logging.INFO):
     log_setup = logging.getLogger(logger_name)
@@ -106,6 +107,13 @@ async def main():
         required=True,
     )
 
+    parser.add_argument(
+        "--force_uint8",
+        action="store_true",
+        help="Force final quantization to be uint8, ex: --force_uint8",
+        required=False,
+    )
+
     args = parser.parse_args()
 
     input_file = args.input
@@ -114,6 +122,7 @@ async def main():
     ds_scale = args.dataset_range
     img_size = args.image_size
     edge_address = args.edge_address
+    force_uint8 = args.force_uint8
 
     setup_logger('log_one', "LOG_ONE.log")
     logger(f"OPTIMIZING {input_file}", 'info', 'one')
@@ -138,9 +147,9 @@ async def main():
     else:
         dm = DatasetManager(dataset_path, img_size=img_shape, scale=ds_scale)
     tuner = Tuner(original, dm, ModelProblemInt.CATEGORICAL_CLASSIFICATION, batch_size)
+    tuner.force_uint8 = force_uint8
     result = await tuner.test_model(input_file)
     print(f"MEASURED RESULTS {result}")
-    original_acc = result.accuracy
     model_path = tempfile.mktemp("*.keras")
     original.save(model_path)
 
@@ -162,6 +171,14 @@ async def main():
         # print(f"NAME:{result.name}\tTIME:{result.time}\tSIZE:{result.size}\tACC:{result.accuracy}")
         logger(f"NAME:{result.name}\tTIME:{result.time}\tSIZE:{result.size}\tACC:{result.accuracy}", 'info', 'one')
 
+    output_path = "optimized_model"
+    os.makedirs(output_path, exist_ok=True)
+    original_file_name = os.path.basename(input_file)
+    output_model_path = output_path+os.path.sep+f"{original_file_name}.tflite"
+    with open(output_model_path, "wb") as f:
+        f.write(tflite_model)
+        f.close()
+    print(f"MODEL SAVED IN: {output_model_path}")
 
 if __name__ == "__main__":
     multiprocessing.set_start_method("spawn")

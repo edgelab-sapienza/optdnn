@@ -84,6 +84,7 @@ def add_task(optimization_config: OptimizationConfig, request: Request):
     t.callback_url = str(optimization_config.callback_url)
     t.batch_size = optimization_config.batch_size
     t.img_size = optimization_config.img_size
+    t.force_uint8 = optimization_config.force_uint8
 
     print(optimization_config.model_problem)
     if optimization_config.model_problem is ModelProblem.CATEGORICAL_CLASSIFICATION:
