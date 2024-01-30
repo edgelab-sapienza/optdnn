@@ -94,8 +94,8 @@ async def main():
         dm = DatasetManager(dataset_path, img_size=img_shape, scale=ds_scale)
 
     # device = EdgeDevice("192.168.0.113", 22051)
-    # device = EdgeDevice("192.168.0.68", 12300)
-    device = EdgeDevice("192.168.178.157", 12300)
+    device = EdgeDevice("192.168.0.68", 12300)
+    # device = EdgeDevice("192.168.178.157", 12300)
 
     device.id = 0
     bc = Benchmarker(edge_devices=[device])
