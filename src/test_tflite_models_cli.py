@@ -74,6 +74,12 @@ async def main():
         default=[None, None],
         nargs=2,
     )
+    parser.add_argument(
+        "--edge_address",
+        type=str,
+        help="IP Address and port of edge node, ex: --edge_address 192.168.0.2:12300",
+        required=True,
+    )
     setup_logger('log_one', "TEST_MODELS.log")
 
     args = parser.parse_args()
@@ -82,6 +88,7 @@ async def main():
     dataset_path = args.dataset
     img_size = args.image_size
     ds_scale = args.dataset_range
+    edge_address = args.edge_address
 
     img_size[0] = int(img_size[0])
     img_size[1] = int(img_size[1])
@@ -93,11 +100,14 @@ async def main():
     else:
         dm = DatasetManager(dataset_path, img_size=img_shape, scale=ds_scale)
 
-    # device = EdgeDevice("192.168.0.113", 22051)
-    device = EdgeDevice("192.168.0.68", 12300)
-    # device = EdgeDevice("192.168.178.157", 12300)
-
+    if ":" not in edge_address:
+        print("edge address not valid, use the format 192.168.0.2:12300")
+        exit(-1)
+    ip_address, port = edge_address.split(":")
+    port = int(port)
+    device = EdgeDevice(ip_address, port)
     device.id = 0
+
     bc = Benchmarker(edge_devices=[device])
     for model in input_files:
         m_str= str(model)

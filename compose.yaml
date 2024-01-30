@@ -12,4 +12,4 @@ services:
             device_ids: ['0']
             capabilities: [gpu]
     env_file:
-      - ./default.env
+      - ./.env

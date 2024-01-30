@@ -99,16 +99,12 @@ async def main():
         default=[None, None],
         nargs=2,
     )
-
-    args = parser.parse_args()
-
-    input_file = args.input
-    dataset_path = args.dataset
-    optimizations = args.opt
-    test_run = args.test_opt
-    batch_size = args.batch
-    ds_scale = args.dataset_range
-    img_size = args.image_size
+    parser.add_argument(
+        "--edge_address",
+        type=str,
+        help="IP Address and port of edge node, ex: --edge_address 192.168.0.2:12300",
+        required=True,
+    )
 
     args = parser.parse_args()
 
@@ -117,6 +113,7 @@ async def main():
     batch_size = args.batch
     ds_scale = args.dataset_range
     img_size = args.image_size
+    edge_address = args.edge_address
 
     setup_logger('log_one', "LOG_ONE.log")
     logger(f"OPTIMIZING {input_file}", 'info', 'one')
@@ -147,9 +144,12 @@ async def main():
     model_path = tempfile.mktemp("*.keras")
     original.save(model_path)
 
-    device = EdgeDevice("192.168.0.113", 22051)
-    # device = EdgeDevice("192.168.0.68", 12300)
-
+    if ":" not in edge_address:
+        print("edge address not valid, use the format 192.168.0.2:12300")
+        exit(-1)
+    ip_address, port = edge_address.split(":")
+    port = int(port)
+    device = EdgeDevice(ip_address, port)
     device.id = 0
     bc = Benchmarker(edge_devices=[device])
 
