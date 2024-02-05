@@ -26,7 +26,6 @@ from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
 from tf_optimizer_core.benchmarker_core import BenchmarkerCore, Result
 from tf_optimizer.task_manager.task import Task
 
-
 class SpeedMeausureCallback(tf.keras.callbacks.Callback):
     current_batch_times = []
     start_time = 0
@@ -79,6 +78,8 @@ class Tuner:
             level=logging.INFO,
             force=True
         )
+        self.start_time = now
+        logging.info(f"START AT: {self.start_time}")
         logging.info(f"DS:{self.dataset_manager.get_path()}")
         logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
         logging.info(f"INITIAL PARAMETERS {original_model.count_params()}")
@@ -372,6 +373,9 @@ class Tuner:
         quantized_model = await self.quantize_model(clustered_model_path, optimizer)
         shutil.rmtree(clustered_model_path)
         shutil.rmtree(original_model_path)
+        elapsed = datetime.now() - self.start_time
+        logging.info(f"END AT: {datetime.now()}")
+        logging.info(f"ELAPSED {elapsed}")
         return quantized_model
 
     async def quantize_model(self, input_model_path: str, optimizer: Optimizer) -> bytes:

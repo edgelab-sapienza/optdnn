@@ -24,7 +24,7 @@ class Task(Base):
     __tablename__ = "tasks"
     id = Column(Integer, primary_key=True, index=True)
     status = Column(Integer, default=TaskStatus.PENDING.value)
-    created_at = Column(DateTime, default=datetime.datetime.now())
+    created_at = Column(DateTime, default=datetime.datetime.now)
     model_url = Column(String, nullable=False)
     dataset_url = Column(String, nullable=False)
     dataset_scale = Column(JSON, nullable=False)
