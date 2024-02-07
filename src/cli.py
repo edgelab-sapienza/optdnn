@@ -105,6 +105,7 @@ async def main():
         type=str,
         help="IP Address and port of edge node, ex: --edge_address 192.168.0.2:12300",
         required=False,
+        default=[],
         nargs="*"
     )
 
@@ -155,13 +156,17 @@ async def main():
     original.save(model_path)
 
     devices = []
+    id = 0
     for address in edge_addresses:
         if ":" not in address:
             print("edge address not valid, use the format 192.168.0.2:12300")
             exit(-1)
         ip_address, port = address.split(":")
         port = int(port)
-        devices.append(EdgeDevice(ip_address, port))
+        d = EdgeDevice(ip_address, port)
+        d.id = id
+        devices.append(d)
+        id += 1
     bc = Benchmarker(edge_devices=devices)
 
     tflite_model = await tuner.get_optimized_model()

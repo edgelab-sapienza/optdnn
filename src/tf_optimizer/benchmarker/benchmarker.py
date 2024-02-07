@@ -53,7 +53,13 @@ class Benchmarker:
             use_multicore=True,
     ) -> None:
         self.use_multicore = use_multicore
-        self.edge_devices = edge_devices
+        if edge_devices is None or len(edge_devices) == 0:
+            ed = EdgeDevice("localhost", 0)
+            ed.alias = "local"
+            ed.id = 0
+            self.edge_devices = [ed]
+        else:
+            self.edge_devices = edge_devices
 
     def add_model(
             self, model: tf.keras.Sequential, name: str, is_reference: bool = False
