@@ -10,7 +10,6 @@ class ModelProblemInt(IntEnum):
     CATEGORICAL_CLASSIFICATION = 0
     BINARY_CLASSIFICATION = 1
 
-
 @dataclass
 class QuantizationLayerToQuantize(Enum):
     OnlyDeepLayer = auto()

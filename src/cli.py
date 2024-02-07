@@ -108,6 +108,16 @@ async def main():
         required=False,
     )
 
+    model_problem_default = ModelProblemInt.CATEGORICAL_CLASSIFICATION.name.lower()
+    parser.add_argument(
+        "--model_problem",
+        type=str,
+        help=f"Kind of problem solved by the model, default: {model_problem_default}",
+        required=False,
+        default=model_problem_default,
+        choices=[e.name.lower() for e in list(ModelProblemInt)],
+    )
+
     args = parser.parse_args()
 
     input_file = args.input
@@ -118,11 +128,13 @@ async def main():
     edge_addresses = args.edge_addresses
     force_uint8 = args.force_uint8
 
-    setup_logger('log_one', "LOG_ONE.log")
+    setup_logger('log_one', "cli_log.log")
     logger(f"OPTIMIZING {input_file}", 'info', 'one')
 
     ds_scale = list(map(lambda x: int(x), ds_scale))
     original = tf.keras.models.load_model(input_file)
+
+    model_problem = ModelProblemInt[args.model_problem.upper()]
 
     detected_input_size = original.input_shape
     if img_size[0] is not None and img_size[1] is not None:
@@ -140,7 +152,7 @@ async def main():
         dm = DatasetManager(dataset_path, img_size=img_shape, data_format=args.dataset_format)
     else:
         dm = DatasetManager(dataset_path, img_size=img_shape, scale=ds_scale)
-    tuner = Tuner(original, dm, ModelProblemInt.CATEGORICAL_CLASSIFICATION, batch_size)
+    tuner = Tuner(original, dm, model_problem, batch_size)
     tuner.force_uint8 = force_uint8
     result = await tuner.test_model(input_file)
     print(f"MEASURED RESULTS {result}")
@@ -167,7 +179,6 @@ async def main():
     await bc.set_dataset(dm)
     results = await bc.benchmark()
     for result in results["0"]:
-        # print(f"NAME:{result.name}\tTIME:{result.time}\tSIZE:{result.size}\tACC:{result.accuracy}")
         logger(f"NAME:{result.name}\tTIME:{result.time}\tSIZE:{result.size}\tACC:{result.accuracy}", 'info', 'one')
 
     output_path = "optimized_model"

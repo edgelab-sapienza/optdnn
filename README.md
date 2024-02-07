@@ -63,6 +63,11 @@ ex.: `--image_size 250, 250` [Default autodetected].
 - **`--edge_addresses`** one or more IP addresses and ports separated by a space of the edge devices for testing the optimized model, if not passed, the local machine will be used also for the final evaluation.
 ex.: `--edge_addresses 192.168.1.5:12300 192.168.1.6:12300` [Default None].
 - **`--force_uint8`** if passed, the final model will be quantized to be run on only 8-bit devices.
+- **`--model_problem`** the kind of problem solved by the model, one between:
+  - categorical_classification
+  - binary_classification
+  
+  ex.: `--model_problem binary_classification` [Default categorical_classification]
 
 ## Change default parameters
 It is possible to change some parameters related to the optimization editing the files:
