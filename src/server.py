@@ -6,8 +6,8 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, FileResponse
 
 from tf_optimizer.optimizer.optimization_param import ModelProblemInt
-from tf_optimizer.task_manager.optimization_config import OptimizationConfig, OptimizationPriority, ModelProblem
-from tf_optimizer.task_manager.task import Task, TaskStatus, OptimizationPriorityInt
+from tf_optimizer.task_manager.optimization_config import OptimizationConfig, ModelProblem
+from tf_optimizer.task_manager.task import Task, TaskStatus
 from tf_optimizer.task_manager.task_manager import TaskManager
 
 tags_metadata = [
@@ -84,10 +84,7 @@ def add_task(optimization_config: OptimizationConfig, request: Request):
     t.callback_url = str(optimization_config.callback_url)
     t.batch_size = optimization_config.batch_size
     t.img_size = optimization_config.img_size
-    if optimization_config.priority is OptimizationPriority.SPEED:
-        t.optimization_priority = OptimizationPriorityInt.SPEED
-    else:
-        t.optimization_priority = OptimizationPriorityInt.SIZE
+    t.force_uint8 = optimization_config.force_uint8
 
     print(optimization_config.model_problem)
     if optimization_config.model_problem is ModelProblem.CATEGORICAL_CLASSIFICATION:
@@ -142,7 +139,6 @@ def get_tasks():
     json_compatible_item_data = jsonable_encoder(all_tasks)
     for e in json_compatible_item_data:
         e["status"] = TaskStatus(e["status"]).name
-        e["optimization_priority"] = OptimizationPriorityInt(e["optimization_priority"]).name
     return JSONResponse(content=json_compatible_item_data)
 
 

@@ -257,6 +257,9 @@ class TaskManager:
             elif p.exitcode == ProcessErrorCode.ConnectionRefused:
                 msg = "Connection refused by the node"
                 tm.report_error(task.id, msg)
+            elif p.exitcode == ProcessErrorCode.LowAccuracy:
+                msg = "Accuracy is very low, maybe you dataset or your input range is wrong"
+                tm.report_error(task.id, msg)
             tm.update_task_state(task.id, TaskStatus.FAILED)
         task_workspace = task.get_workspace_path()
         if os.path.exists(task_workspace) and os.path.isdir(task_workspace):
@@ -306,25 +309,14 @@ class TaskManager:
 
         img_shape = (detected_input_size[1], detected_input_size[2])
         dm = DatasetManager(dataset_folder, img_size=img_shape, scale=t.dataset_scale, data_format=t.data_format)
-        test = False
-        if not test:
-            tuner = Tuner(
-                original_model,
-                dm,
-                model_problem=t.model_problem,
-                batchsize=t.batch_size,
-                optimized_model_path=t.generate_filename(),
-            )
-            result = asyncio.run(tuner.tune())
-            optimized_model = result
-        else:
-            # Quick test
-            opt_param = OptimizationParam()
-            opt_param.toggle_pruning(False)
-            opt_param.toggle_clustering(False)
-            opt_param.toggle_quantization(True)
-            optimizer = Optimizer(model_path, dm, opt_param, t.model_problem)
-            optimized_model = optimizer.optimize()
+        tuner = Tuner(
+            original_model,
+            dm,
+            model_problem=t.model_problem,
+            batch_size=t.batch_size,
+        )
+        tuner.force_uint8 = t.force_uint8
+        optimized_model = asyncio.run(tuner.get_optimized_model())
 
         bc = Benchmarker(edge_devices=t.devices)
         try:

@@ -2,11 +2,13 @@ import logging
 import multiprocessing
 import os
 import pathlib
+import shutil
 import sys
 import tempfile
 from datetime import datetime
 from statistics import mean
 from time import time
+from typing import Optional, Union
 
 import tensorflow as tf
 
@@ -16,14 +18,13 @@ from tf_optimizer.configuration import Configuration
 from tf_optimizer.dataset_manager import DatasetManager
 from tf_optimizer.optimizer.optimization_param import (
     OptimizationParam,
-    QuantizationLayerToPrune,
-    QuantizationTechnique, ModelProblemInt,
+    QuantizationLayerToQuantize,
+    QuantizationTechnique, ModelProblemInt, PruningPlan, QuantizationParameter, QuantizationType,
 )
 from tf_optimizer.optimizer.optimizer import Optimizer
 from tf_optimizer.task_manager.process_error_code import ProcessErrorCode
-from tf_optimizer.task_manager.task import OptimizationPriorityInt
 from tf_optimizer_core.benchmarker_core import BenchmarkerCore, Result
-
+from tf_optimizer.task_manager.task import Task
 
 class SpeedMeausureCallback(tf.keras.callbacks.Callback):
     current_batch_times = []
@@ -51,25 +52,22 @@ class Tuner:
             original_model: tf.keras.Sequential,
             dataset: DatasetManager,
             model_problem: ModelProblemInt,
-            batchsize=32,
-            optimized_model_path=None,
-            priority: OptimizationPriorityInt = OptimizationPriorityInt.SPEED
+            batch_size=32,
     ) -> None:
         self.original_model = original_model
         self.dataset_manager = dataset
-        self.batch_size = batchsize
+        self.batch_size = batch_size
         self.optimization_param = OptimizationParam()
         self.optimization_param.toggle_pruning(True)
         self.optimization_param.set_pruning_target_sparsity(0.5)
         self.optimization_param.toggle_quantization(True)
         self.optimization_param.set_number_of_cluster(16)
         self.optimization_param.toggle_clustering(True)
-        self.optimized_model_path = optimized_model_path
         self.applied_prs = []
         self.no_cluster_prs = []
         self.max_cluster_fails = 0
-        self.isSpeedPrioritized = priority is OptimizationPriorityInt.SPEED
         self.model_problem = model_problem
+        self.force_uint8 = False
         now = datetime.now()
         date_time = now.strftime("%m-%d-%Y-%H:%M:%S")
         LOGS_DIR = "logs"
@@ -80,33 +78,119 @@ class Tuner:
             level=logging.INFO,
             force=True
         )
+        self.start_time = now
+        logging.info(f"START AT: {self.start_time}")
         logging.info(f"DS:{self.dataset_manager.get_path()}")
         logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
-        self.configuation = Configuration()
-        layersToQuantize = self.configuation.getConfig("QUANTIZATION", "layers")
-        if layersToQuantize == "ALL":
-            self.optimization_param.set_quantized_layers(
-                QuantizationLayerToPrune.AllLayers
-            )
-            self.optimization_param.set_in_out_type(tf.uint8)
-        else:
-            self.optimization_param.set_quantized_layers(
-                QuantizationLayerToPrune.OnlyDeepLayer
-            )
-        qTech = self.configuation.getConfig("QUANTIZATION", "type")
-        if qTech == "QAT":
-            print("Quantization Aware Training Selected")
-            self.optimization_param.set_quantization_technique(
-                QuantizationTechnique.QuantizationAwareTraining
-            )
-        elif qTech == "PTQ":
-            print("Post Training Quantization Selected")
-            self.optimization_param.set_quantization_technique(
-                QuantizationTechnique.PostTrainingQuantization
-            )
-        else:
-            print(f"QUANTIZATION TYPE:{qTech} NOT VALID")
-            exit(ProcessErrorCode.WrongQuantizationType)
+        logging.info(f"INITIAL PARAMETERS {original_model.count_params()}")
+        flops, macs = Tuner.net_flops(original_model)
+        logging.info(f"INITIAL FLOPS {flops}")
+        logging.info(f"INITIAL MACS {macs}")
+
+        self.configuration = Configuration()
+
+    @staticmethod
+    def net_flops(model, table=False) -> tuple[float, float]:
+        # Code from https://github.com/ckyrkou/Keras_FLOP_Estimator/blob/master/python_code/net_flops.py
+        if table == True:
+            print('%25s | %16s | %16s | %16s | %16s | %6s | %6s' % (
+                'Layer Name', 'Input Shape', 'Output Shape', 'Kernel Size', 'Filters', 'Strides', 'FLOPS'))
+            print('-' * 170)
+        t_flops = 0
+        t_macc = 0
+        for l in model.layers:
+            o_shape, i_shape, strides, ks, filters = ['', '', ''], ['', '', ''], [1, 1], [0, 0], [0, 0]
+            flops = 0
+            macc = 0
+            name = l.name
+            factor = 1000000
+            if 'InputLayer' in str(l):
+                i_shape = l.input.get_shape()[1:4].as_list()
+                o_shape = i_shape
+            if 'Reshape' in str(l):
+                i_shape = l.input.get_shape()[1:4].as_list()
+                o_shape = l.output.get_shape()[1:4].as_list()
+            if 'Add' in str(l) or 'Maximum' in str(l) or 'Concatenate' in str(l):
+                i_shape = l.input[0].get_shape()[1:4].as_list() + [len(l.input)]
+                o_shape = l.output.get_shape()[1:4].as_list()
+                flops = (len(l.input) - 1) * i_shape[0] * i_shape[1] * i_shape[2]
+            if 'Average' in str(l) and 'pool' not in str(l):
+                i_shape = l.input[0].get_shape()[1:4].as_list() + [len(l.input)]
+                o_shape = l.output.get_shape()[1:4].as_list()
+                flops = len(l.input) * i_shape[0] * i_shape[1] * i_shape[2]
+            if 'BatchNormalization' in str(l):
+                i_shape = l.input.get_shape()[1:4].as_list()
+                o_shape = l.output.get_shape()[1:4].as_list()
+                bflops = 1
+                for i in range(len(i_shape)):
+                    bflops *= i_shape[i]
+                flops /= factor
+            if 'Activation' in str(l) or 'activation' in str(l):
+                i_shape = l.input.get_shape()[1:4].as_list()
+                o_shape = l.output.get_shape()[1:4].as_list()
+                bflops = 1
+                for i in range(len(i_shape)):
+                    bflops *= i_shape[i]
+                flops /= factor
+            if 'pool' in str(l) and ('Global' not in str(l)):
+                i_shape = l.input.get_shape()[1:4].as_list()
+                strides = l.strides
+                ks = l.pool_size
+                flops = ((i_shape[0] / strides[0]) * (i_shape[1] / strides[1]) * (ks[0] * ks[1] * i_shape[2]))
+            if 'Flatten' in str(l):
+                i_shape = l.input.shape[1:4].as_list()
+                flops = 1
+                out_vec = 1
+                for i in range(len(i_shape)):
+                    flops *= i_shape[i]
+                    out_vec *= i_shape[i]
+                o_shape = flops
+                flops = 0
+            if 'Dense' in str(l):
+                print(l.input)
+                i_shape = l.input.shape[1:4].as_list()[0]
+                if (i_shape == None):
+                    i_shape = out_vec
+                o_shape = l.output.shape[1:4].as_list()
+                flops = 2 * (o_shape[0] * i_shape)
+                macc = flops / 2
+            if 'Padding' in str(l):
+                flops = 0
+            if 'Global' in str(l):
+                i_shape = l.input.get_shape()[1:4].as_list()
+                flops = ((i_shape[0]) * (i_shape[1]) * (i_shape[2]))
+                o_shape = [l.output.get_shape()[1:4].as_list(), 1, 1]
+                out_vec = o_shape
+            if 'Conv2D ' in str(l) and 'DepthwiseConv2D' not in str(l) and 'SeparableConv2D' not in str(l):
+                strides = l.strides
+                ks = l.kernel_size
+                filters = l.filters
+                i_shape = l.input.get_shape()[1:4].as_list()
+                o_shape = l.output.get_shape()[1:4].as_list()
+                if (filters == None):
+                    filters = i_shape[2]
+                flops = 2 * ((filters * ks[0] * ks[1] * i_shape[2]) * (
+                        (i_shape[0] / strides[0]) * (i_shape[1] / strides[1])))
+                macc = flops / 2
+            if 'Conv2D ' in str(l) and 'DepthwiseConv2D' in str(l) and 'SeparableConv2D' not in str(l):
+                strides = l.strides
+                ks = l.kernel_size
+                filters = l.filters
+                i_shape = l.input.get_shape()[1:4].as_list()
+                o_shape = l.output.get_shape()[1:4].as_list()
+                if (filters == None):
+                    filters = i_shape[2]
+                flops = 2 * (
+                        (ks[0] * ks[1] * i_shape[2]) * ((i_shape[0] / strides[0]) * (i_shape[1] / strides[1])))
+                macc = flops / 2
+            t_macc += macc
+            t_flops += flops
+            if table:
+                print('%25s | %16s | %16s | %16s | %16s | %6s | %5.4f' % (
+                    name, str(i_shape), str(o_shape), str(ks), str(filters), str(strides), flops))
+        t_flops = t_flops / factor
+        # t_macc
+        return t_flops * (10 ** 6), t_macc
 
     @staticmethod
     def measure_keras_accuracy_process(
@@ -142,7 +226,7 @@ class Tuner:
         res.accuracy = metrics[1]
         q.put(res)
 
-    async def test_model(self, model) -> Result:
+    async def test_model(self, model: Union[bytes, str, pathlib.PosixPath]) -> Result:
         if isinstance(model, bytes):
             print("Measuring tflite model accuracy")
             bc = BenchmarkerCore(
@@ -159,7 +243,10 @@ class Tuner:
             model = str(model)
             print(f"Measuring {model}")
             # Start a new process
-            lr: float = self.original_model.optimizer.learning_rate.numpy()
+            try:
+                lr: float = self.original_model.optimizer.learning_rate.numpy()
+            except:
+                lr = 1e-5
             try:
                 from_logits: bool = self.original_model.loss.get_config()["from_logits"]
             except AttributeError:
@@ -184,176 +271,231 @@ class Tuner:
             p.join()
             return res
 
-    async def getOptimizedModel(
-            self, model_path, targetAccuracy: float, percentagePrecision: float = 2.0
-    ) -> tuple[bytes, Result]:
-        iterations = 0
-        pruningRatio = 0.5
-        minPruningRatio = 0
-        maxPruningRatio = 1
-        tflite_model = None
-        model_result = None
-        reachedAccuracy = 0
-        self.optimization_param.set_pruning_target_sparsity(pruningRatio)
-        counter_back_direction = 0
-        counter_forward_direction = 0
-        if self.optimization_param.get_number_of_cluster() <= self.max_cluster_fails:
-            self.optimization_param.toggle_clustering(False)
-            logging.info(
-                f"SINCE REQUIRED NUMBER OF CLUSTER {self.optimization_param.get_number_of_cluster()} IS BELOW {self.max_cluster_fails}, CLUSTERIZATION IS DISABLED"
-            )
-        watchdog = 0
-        while abs(reachedAccuracy - targetAccuracy) > percentagePrecision / 100 or not (watchdog > 5 and reachedAccuracy > targetAccuracy):
-            watchdog += 1
+    async def find_pruned_model(
+            self, input_model_path: str, optimizer: Optimizer, target_accuracy: float, percentage_precision: float = 2.0
+    ) -> tuple[str, float]:
+        pruning_ratio = 0.5
+        min_pruning_ratio = 0
+        max_pruning_ratio = 1
+        self.optimization_param.set_pruning_target_sparsity(pruning_ratio)
+        pruning_plan = PruningPlan()
+        pruning_plan.schedule = PruningPlan.schedule.PolynomialDecay
+        logging.info(f"PR: Target accuracy of {target_accuracy}")
+
+        while True:
             # Computing pruning rate
-            if (
-                    iterations == 0
-                    and self.optimization_param.isClusteringEnabled()
-                    and len(self.applied_prs) > 0
-            ):
-                pruningRatio = mean(self.applied_prs)
-            elif (
-                    iterations == 0
-                    and not self.optimization_param.isClusteringEnabled()
-                    and len(self.no_cluster_prs) > 0
-            ):
-                pruningRatio = mean(self.no_cluster_prs)
-            elif iterations == 0 or (
-                    iterations == 1
-                    and (len(self.applied_prs) > 0 or len(self.no_cluster_prs) > 0)
-            ):
-                # If first iteration and applied_pr is empty
-                # if mean of applied_pr has failed, so it starts from the middle
-                pruningRatio = 0.5
-            elif reachedAccuracy < targetAccuracy or tflite_model is None:  # Go left
-                # Pruning ratio decreases
-                maxPruningRatio = pruningRatio
-                pruningRatio = (minPruningRatio + pruningRatio) / 2
-                counter_back_direction += 1
-                counter_forward_direction = 0
-            else:  # Go rigth
-                # Pruning ration increases
-                minPruningRatio = pruningRatio
-                pruningRatio = (maxPruningRatio + pruningRatio) / 2
-                counter_forward_direction += 1
-                counter_back_direction = 0
+            # If first iteration and applied_pr is empty
+            # if mean of applied_pr has failed, so it starts from the middle
 
-            # Apply optimizations
-            self.optimization_param.set_pruning_target_sparsity(pruningRatio)
+            pruning_plan.targetSparsity = pruning_ratio
             tf.keras.backend.clear_session()
-            optimizer = Optimizer(
-                model_path,
-                model_problem=self.model_problem,
-                optimization_param=self.optimization_param,
-                batch_size=self.batch_size,
-                dataset_manager=self.dataset_manager,
-                early_breakup_accuracy=targetAccuracy,
-                logger=logging,
-            )
-            logging.info(f"Optimizing with PR of {pruningRatio}")
-            tflite_model = optimizer.optimize()
 
-            if tflite_model is None:
-                logging.info("Early stopped")
-            else:  # Accuracy is ok in pruning or/and clustering
-                model_result = await self.test_model(tflite_model)
-                reachedAccuracy = model_result.accuracy
-                logging.info(f"Measured accuracy {reachedAccuracy}")
-                if not self.optimization_param.isPruningEnabled():
-                    break
-            if counter_back_direction > self.configuation.getConfig(
-                    "CLUSTERING", "number_of_backstep_to_exit"
-            ):
-                if self.optimization_param.isClusteringEnabled():
-                    # Accuracy is too high, clusterization disabled
-                    logging.info("Accuracy is too high, clusterization disabled")
-                    self.max_cluster_fails = self.optimization_param.get_number_of_cluster()
-                    self.optimization_param.toggle_clustering(False)
-                else:
-                    logging.info("Accuracy is too high, pruning disabled")
-                    self.optimization_param.toggle_pruning(False)
-                    return await self.getOptimizedModel(
-                        model_path, targetAccuracy, percentagePrecision
-                    )
-            iterations += 1
-        logging.info(
-            f"Found model with acc:{reachedAccuracy} in {iterations} iterations"
-        )
-        if self.optimization_param.isClusteringEnabled():
-            # If accuracy is ok, add pr in the list
-            self.applied_prs.append(pruningRatio)
-        else:
-            self.no_cluster_prs.append(pruningRatio)
-        return tflite_model, model_result
+            logging.info(f"Optimizing with PR of {pruning_ratio}")
+            reached_accuracy = optimizer.prune_model(input_model_path, None, pruning_plan)
+            logging.info(f"PR:{pruning_ratio} returns an accuracy of {reached_accuracy}")
+            logging.info(
+                f"PR: Comparing reached {reached_accuracy}, with target:{target_accuracy}, diff:{abs(reached_accuracy - target_accuracy)} and delta:{percentage_precision / 100}")
 
-    async def tune(self) -> bytes:
-        # Get parameters from config
-        right = self.configuation.getConfig("CLUSTERING", "max_clusters_number")
-        left = self.configuation.getConfig("CLUSTERING", "min_clusters_numbers")
-        delta_precision = self.configuation.getConfig("TUNER", "DELTA_PERCENTAGE")
-        isClusteringEnabled = self.configuation.getConfig("CLUSTERING", "enabled")
+            old_pruning_ratio = pruning_ratio
+            if abs(reached_accuracy - target_accuracy) <= percentage_precision / 100:
+                break
+            elif reached_accuracy < target_accuracy:  # Go left
+                # Pruning ratio decreases
+                max_pruning_ratio = pruning_ratio
+                pruning_ratio = (min_pruning_ratio + pruning_ratio) / 2
+            else:  # Go right
+                # Pruning ratio increases
+                min_pruning_ratio = pruning_ratio
+                pruning_ratio = (max_pruning_ratio + pruning_ratio) / 2
+            if abs(pruning_ratio - old_pruning_ratio) < self.configuration.getConfig("PRUNING",
+                                                                                     "min_pruning_ratio_update"):
+                break
+            if pruning_ratio < self.configuration.getConfig("PRUNING", "min_pruning_ratio"):
+                logging.info(f"PRUNING RATE TOO LOW {pruning_ratio}, PRUNING DISABLED")
+                return input_model_path, 0
 
+        pruned_model_path = tempfile.mkdtemp("pruned_model")
+        pruning_plan.targetSparsity = pruning_ratio + self.configuration.getConfig("PRUNING", "final_step")
+        reached_accuracy = optimizer.prune_model(input_model_path, pruned_model_path, pruning_plan)
+
+        logging.info(f"PR:{pruning_plan.targetSparsity} final accuracy {reached_accuracy}")
+        return pruned_model_path, pruning_plan.targetSparsity
+
+    async def get_optimized_model(self) -> bytes:
         # Step 0, save original model
         original_model_path = tempfile.mkdtemp()
         self.original_model.save(original_model_path)
 
+        # Step 1, evaluate original model
         model_performance = await self.test_model(original_model_path)
-        targetAccuracy = model_performance.accuracy
-        logging.info(f"Target accuracy: {targetAccuracy}")
-
-        self.optimization_param.toggle_clustering(True)
-        cached_result = {}
-
-        while isClusteringEnabled and abs(left - right) > 2:
-            left_third = int(left + (right - left) / 3)
-            right_third = int(right - (right - left) / 3)
-            tf.keras.backend.clear_session()
-            logging.info(f"Optimizing with {left_third} clusters")
-
-            if left_third in cached_result.keys():
-                result_left = cached_result[left_third]
-            else:
-                self.optimization_param.set_number_of_cluster(left_third)
-                self.optimization_param.toggle_clustering(True)
-                _, result = await self.getOptimizedModel(
-                    original_model_path,
-                    targetAccuracy,
-                    percentagePrecision=delta_precision,
-                )
-                result_left = result.time if self.isSpeedPrioritized else result.size
-                cached_result[left_third] = result_left
-
-            tf.keras.backend.clear_session()
-            logging.info(f"Optimizing with {right_third} clusters")
-
-            if right_third in cached_result.keys():
-                result_right = cached_result[right_third]
-            else:
-                self.optimization_param.set_number_of_cluster(right_third)
-                self.optimization_param.toggle_clustering(True)
-                _, result = await self.getOptimizedModel(
-                    original_model_path,
-                    targetAccuracy,
-                    percentagePrecision=delta_precision,
-                )
-                result_right = result.time if self.isSpeedPrioritized else result.size
-                cached_result[right_third] = result_right
-
-                logging.info(f"NUMBER OF CLUSTERS :{right_third}\tSIZE: {result.size}\tSPEED: {result.time}")
-
-            if result_left > result_right:
-                left = left_third
-            else:
-                right = right_third
-
-            logging.info(f"NEXT EVALUATED LEFT:{left} - RIGHT:{right}")
-
-        choosen_clusters = (right + left) / 2  # Should be the minimum
-
-        self.optimization_param.set_number_of_cluster(int(choosen_clusters))
-        self.optimization_param.toggle_clustering(True and isClusteringEnabled)
-        optimized_model, _ = await self.getOptimizedModel(
-            original_model_path, targetAccuracy, percentagePrecision=delta_precision
+        target_accuracy = model_performance.accuracy
+        logging.info(f"Target accuracy: {target_accuracy}")
+        if target_accuracy < self.configuration.getConfig("GENERAL", "min_accuracy"):
+            # Probably there is a problem with the dataset
+            logging.info(f"Accuracy to low: {target_accuracy}")
+            exit(ProcessErrorCode.LowAccuracy)
+        optimizer = Optimizer(
+            model_problem=self.model_problem,
+            batch_size=self.batch_size,
+            dataset_manager=self.dataset_manager,
+            logger=logging,
         )
 
-        return optimized_model
+        # Step 2, prune the model
+        pruned_model_path, final_pruning_rate = await self.find_pruned_model(
+            original_model_path,
+            optimizer,
+            target_accuracy + self.configuration.getConfig("PRUNING", "delta_finding"),
+            percentage_precision=self.configuration.getConfig("PRUNING", "delta_percentage")
+        )
+
+        # Step 3, clusterize the model
+        clustered_model_path = await self.find_clustered_model(
+            pruned_model_path,
+            optimizer,
+            percentage_precision=self.configuration.getConfig("CLUSTERING", "delta_percentage")
+        )
+        if clustered_model_path is None:
+            logging.info(f"CLUSTERING DISABLED")
+            clustered_model_path = pruned_model_path
+        else:
+            shutil.rmtree(pruned_model_path)
+
+        m = tf.keras.models.load_model(clustered_model_path)
+        logging.info(f"FINAL PARAMETERS {m.count_params()}")
+        flops, macs = Tuner.net_flops(m)
+        logging.info(f"FINAL FLOPS {flops}")
+        logging.info(f"FINAL MACS {macs}")
+        del m
+
+        # Step 4, quantize the model
+        logging.info(f"QUANTIZING {clustered_model_path}")
+        quantized_model = await self.quantize_model(clustered_model_path, optimizer)
+        shutil.rmtree(clustered_model_path)
+        shutil.rmtree(original_model_path)
+        elapsed = datetime.now() - self.start_time
+        logging.info(f"END AT: {datetime.now()}")
+        logging.info(f"ELAPSED {elapsed}")
+        return quantized_model
+
+    async def quantize_model(self, input_model_path: str, optimizer: Optimizer) -> bytes:
+        quantization_parameter = QuantizationParameter()
+        layers_to_quantize = self.configuration.getConfig("QUANTIZATION", "layers")
+        if layers_to_quantize == "ALL":
+            quantization_parameter.layers_to_quantize = QuantizationLayerToQuantize.AllLayers
+            quantization_parameter.set_in_out_type(tf.uint8)
+        else:
+            quantization_parameter.layers_to_quantize = QuantizationLayerToQuantize.OnlyDeepLayer
+
+        quantization_technique = self.configuration.getConfig("QUANTIZATION", "type")
+        if quantization_technique == "QAT":
+            print("Quantization Aware Training Selected")
+            quantization_parameter.set_quantization_technique(QuantizationTechnique.QuantizationAwareTraining)
+
+        elif quantization_technique == "PTQ":
+            print("Post Training Quantization Selected")
+            quantization_parameter.set_quantization_technique(QuantizationTechnique.PostTrainingQuantization)
+        else:
+            print(f"QUANTIZATION TYPE:{quantization_technique} NOT VALID")
+            exit(ProcessErrorCode.WrongQuantizationType)
+
+        result = await self.test_model(input_model_path)
+        target_accuracy = result.accuracy
+
+        best_quantized_model: Optional[tuple[float, bytes]] = None
+        q_types: list[QuantizationType] = [QuantizationType.ForceInt8]
+        if not self.force_uint8:
+            q_types += [QuantizationType.Standard, QuantizationType.AllFP16]
+        # Test this quantization types in order, the first which matches the accuracy is used
+        for qType in q_types:
+            quantization_parameter.quantizationType = qType
+            quantized_model: bytes = await optimizer.quantize_model(input_model_path, quantization_parameter)
+            result = await self.test_model(quantized_model)
+            logging.info(f"Quantization {qType} get {result.accuracy} | size {result.size} | time: {result.time}")
+            if abs(result.accuracy - target_accuracy) < self.configuration.getConfig("QUANTIZATION",
+                                                                                     "delta_percentage") / 100:
+                best_quantized_model = (result.accuracy, quantized_model)
+                break
+            elif best_quantized_model is None or result.accuracy > best_quantized_model[0]:
+                best_quantized_model = (result.accuracy, quantized_model)
+
+        return best_quantized_model[1]
+
+    async def find_clustered_model(self, input_model_path: str, optimizer: Optimizer,
+                                   percentage_precision: float = 2.0) -> Optional[str]:
+        # Get parameters from config
+        right: int = self.configuration.getConfig("CLUSTERING", "max_clusters_number")
+        left: int = self.configuration.getConfig("CLUSTERING", "min_clusters_numbers")
+        is_clustering_enabled: bool = self.configuration.getConfig("CLUSTERING", "enabled")
+        model_performance = await self.test_model(input_model_path)
+        target_accuracy = model_performance.accuracy
+
+        async def compute_model(input_model: str, number_of_clusters: int) -> float:
+            output_model = tempfile.mkdtemp("temp_clust_model")
+            optimizer.clusterize(input_model, output_model, number_of_clusters)
+            q_model = await self.quantize_model(output_model, optimizer)
+            result = await self.test_model(q_model)
+            shutil.rmtree(output_model)
+            return result.accuracy
+
+        max_obtained: Optional[tuple[int, float]] = None
+
+        while is_clustering_enabled and abs(left - right) > 1:
+            left_third: int = int(left + (right - left) / 3)
+            right_third: int = int(right - (right - left) / 3)
+            tf.keras.backend.clear_session()
+
+            logging.info(f"L: Optimizing with {left_third} clusters")
+            result_left = optimizer.clusterize(input_model_path, None, left_third)
+            # result_left = await compute_model(input_model_path, left_third)
+            is_left_valid = result_left > target_accuracy - percentage_precision / 100
+
+            if max_obtained is None:
+                max_obtained = (left_third, result_left)
+
+            if left_third > max_obtained[0]:  # New value has more cluster than the max
+                if result_left >= max_obtained[1]:  # New value is better than the old
+                    max_obtained = (left_third, result_left)
+                else:  # New value with more clusters is worste
+                    return None
+
+            logging.info(
+                f"Clustering with {left_third} clusters returns acc: {result_left}, target: {target_accuracy}, {is_left_valid}")
+            if is_left_valid:
+                right = left_third
+                logging.info(f"Step on left of {left_third}")
+                continue
+
+            tf.keras.backend.clear_session()
+
+            logging.info(f"R: Optimizing with {right_third} clusters")
+            result_right = optimizer.clusterize(input_model_path, None, right_third)
+            # result_right = await compute_model(input_model_path, right_third)
+            is_right_valid = result_right > target_accuracy - percentage_precision / 100
+
+            logging.info(
+                f"Clustering with {right_third} clusters returns acc: {result_right}, target: {target_accuracy}, {is_right_valid}")
+
+            if right_third > max_obtained[0]:  # New value has more cluster than the max
+                if result_right >= max_obtained[1]:  # New value is better than the old
+                    max_obtained = (right_third, result_right)
+                else:  # New value with more clusters is worste
+                    return None
+
+            if is_left_valid is False and is_right_valid is False:
+                left = right_third
+                logging.info(f"Step on right of {right_third}")
+            elif is_left_valid is False and is_right_valid is True:
+                # Step in the middle
+                left = left_third
+                right = right_third
+                logging.info(f"Step between {left_third} and {right_third}")
+
+        output_model_path: str = tempfile.mkdtemp("clustered_model")
+        logging.info(f"FINAL RESULT:{right} - {output_model_path}")
+        final_accuracy = optimizer.clusterize(input_model_path, output_model_path, right)
+        if abs(final_accuracy - target_accuracy) < percentage_precision / 100:
+            return output_model_path
+        else:  # It is not possible to reach the accuracy constraint, so clustering is disabled
+            shutil.rmtree(output_model_path)
+            return None
