@@ -101,10 +101,11 @@ async def main():
         nargs=2,
     )
     parser.add_argument(
-        "--edge_address",
+        "--edge_addresses",
         type=str,
         help="IP Address and port of edge node, ex: --edge_address 192.168.0.2:12300",
-        required=True,
+        required=False,
+        nargs="*"
     )
 
     parser.add_argument(
@@ -121,7 +122,7 @@ async def main():
     batch_size = args.batch
     ds_scale = args.dataset_range
     img_size = args.image_size
-    edge_address = args.edge_address
+    edge_addresses = args.edge_addresses
     force_uint8 = args.force_uint8
 
     setup_logger('log_one', "LOG_ONE.log")
@@ -153,14 +154,15 @@ async def main():
     model_path = tempfile.mktemp("*.keras")
     original.save(model_path)
 
-    if ":" not in edge_address:
-        print("edge address not valid, use the format 192.168.0.2:12300")
-        exit(-1)
-    ip_address, port = edge_address.split(":")
-    port = int(port)
-    device = EdgeDevice(ip_address, port)
-    device.id = 0
-    bc = Benchmarker(edge_devices=[device])
+    devices = []
+    for address in edge_addresses:
+        if ":" not in address:
+            print("edge address not valid, use the format 192.168.0.2:12300")
+            exit(-1)
+        ip_address, port = address.split(":")
+        port = int(port)
+        devices.append(EdgeDevice(ip_address, port))
+    bc = Benchmarker(edge_devices=devices)
 
     tflite_model = await tuner.get_optimized_model()
     bc.add_tf_lite_model(tflite_model, "optimized")
