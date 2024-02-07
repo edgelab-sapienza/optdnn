@@ -112,7 +112,7 @@ async def main():
     parser.add_argument(
         "--model_problem",
         type=str,
-        help=f"Kind of problem solved by the model, default: {model_problem_default}",
+        help=f"Kind of problem solved by the model, default: {model_problem_default}, ex: --model_problem {model_problem_default}",
         required=False,
         default=model_problem_default,
         choices=[e.name.lower() for e in list(ModelProblemInt)],
