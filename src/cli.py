@@ -59,14 +59,6 @@ async def main():
         required="--remote" not in sys.argv,
     )
 
-    parser.add_argument("--opt", type=int, help="Optimization")
-    parser.add_argument(
-        "--test_opt",
-        action="store_true",
-        help="Run single optimization with default param",
-        default=False,
-    )
-
     parser.add_argument(
         "--batch",
         type=int,
