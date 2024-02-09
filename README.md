@@ -24,6 +24,7 @@ Or you can used the software with the CLI commands running:
 
 ## HOW TO RUN (with docker):
 The Dockerfile actually allow to use the software only with the HTTP APIs.
+
 A docker image already built is available in [docker hub](https://hub.docker.com/r/kernelmachine/optdnn) as `kernelmachine/optdnn`
 
 Step 1, build the container:  
