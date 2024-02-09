@@ -1,3 +1,0 @@
-[submodule "optdnn_edge"]
-	path = optdnn_edge
-	url = https://github.com/kernel-machine/optdnn_edge.git
