@@ -35,7 +35,7 @@ Step 2, run the container:
 
     docker run --gpus all -dp 8000:8000 optimizer
   
-Where the IP address have to be replaced with your IP address
+If an external node will be used for the evaluation, using [optdnn-edge](https://github.com/edgelab-sapienza/optdnn-edge) software, you have to set the local ip address on the file called `.env`, otherwise the container was not able to detect the host ip address.
 
 ### How to use HTTP APIs
 The software, by default, will use the port 8000 for the HTTP APIs, and 8080 to serve the files to the remote nodes.
