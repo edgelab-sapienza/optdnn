@@ -1,6 +1,6 @@
 services:
   optimizer:
-    image: kernelmachine/optimizer:latest
+    image: kernelmachine/optdnn:latest
     ports:
       - "8000:8000"
       - "8080:8080"
